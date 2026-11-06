@@ -823,7 +823,7 @@ func TestClientIP(t *testing.T) {
 	}
 	for _, tc := range cases {
 		r := &http.Request{RemoteAddr: tc.remoteAddr}
-		got := clientIP(r)
+		got := ClientIP(r)
 		if got != tc.want {
 			t.Errorf("clientIP(%q) = %q, want %q", tc.remoteAddr, got, tc.want)
 		}

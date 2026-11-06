@@ -176,7 +176,7 @@ func TestClientIP_IgnoresXForwardedFor(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "192.0.2.1:54321"
 	r.Header.Set("X-Forwarded-For", "203.0.113.50")
-	if got := clientIP(r); got != "192.0.2.1" {
+	if got := ClientIP(r); got != "192.0.2.1" {
 		t.Fatalf("X-Forwarded-For should be ignored; want 192.0.2.1, got %s", got)
 	}
 }
@@ -185,7 +185,7 @@ func TestClientIP_IgnoresXRealIP(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "192.0.2.1:54321"
 	r.Header.Set("X-Real-IP", "198.51.100.22")
-	if got := clientIP(r); got != "192.0.2.1" {
+	if got := ClientIP(r); got != "192.0.2.1" {
 		t.Fatalf("X-Real-IP should be ignored; want 192.0.2.1, got %s", got)
 	}
 }
@@ -193,7 +193,7 @@ func TestClientIP_IgnoresXRealIP(t *testing.T) {
 func TestClientIP_RemoteAddr(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "192.0.2.1:54321"
-	if got := clientIP(r); got != "192.0.2.1" {
+	if got := ClientIP(r); got != "192.0.2.1" {
 		t.Fatalf("want 192.0.2.1, got %s", got)
 	}
 }
@@ -201,7 +201,7 @@ func TestClientIP_RemoteAddr(t *testing.T) {
 func TestClientIP_RemoteAddrIPv6(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "[::1]:8080"
-	if got := clientIP(r); got != "::1" {
+	if got := ClientIP(r); got != "::1" {
 		t.Fatalf("want ::1, got %s", got)
 	}
 }

@@ -569,17 +569,23 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 // Middleware
 
+// withObservability applies the request-id, logging and recovery middleware.
+// It sets no body size limit — the caller decides which limit applies.
+func (s *Server) withObservability(handler http.HandlerFunc) http.HandlerFunc {
+	return s.recoveryMiddleware(s.requestIDMiddleware(s.loggingMiddleware(handler)))
+}
+
 // withPublicMiddleware applies observability middleware + a 64 KB body size limit
 // (no auth). Use for health checks, readiness probes, and the HELLO handshake.
 // MaxBytesReader is a no-op on GET requests (no body), so it is safe to apply
 // universally across all public routes.
 func (s *Server) withPublicMiddleware(handler http.HandlerFunc) http.HandlerFunc {
-	return s.recoveryMiddleware(s.requestIDMiddleware(s.loggingMiddleware(s.publicBodySizeMiddleware(handler))))
+	return s.withObservability(s.publicBodySizeMiddleware(handler))
 }
 
 // publicBodySizeMiddleware limits request bodies to 64 KB on public (unauthenticated)
-// routes. This is smaller than the 4 MB limit used on authenticated routes because
-// public endpoints (health, ready, hello) never legitimately need large payloads.
+// routes. This is smaller than the authenticated limit because public endpoints
+// (health, ready, hello) never legitimately need large payloads.
 func (s *Server) publicBodySizeMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	const maxBody = 64 * 1024 // 64 KB
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -592,11 +598,16 @@ func (s *Server) publicBodySizeMiddleware(next http.HandlerFunc) http.HandlerFun
 // All vault-scoped data routes use this.
 // Admin session cookies bypass vault locking so the Web UI can access any vault.
 // If authStore is nil (e.g. in tests), vault auth is skipped.
+//
+// Exactly ONE MaxBytesReader may sit in this chain. MaxBytesReader wraps the
+// reader it is given instead of replacing it, so two wrappers compound and the
+// smaller limit wins — a 64 KB wrapper around a 4 MB one silently truncated
+// every authenticated body at 64 KB.
 func (s *Server) withMiddleware(handler http.HandlerFunc) http.HandlerFunc {
 	if s.authStore == nil {
-		return s.withPublicMiddleware(s.bodySizeMiddleware(handler))
+		return s.withObservability(s.bodySizeMiddleware(handler))
 	}
-	return s.withPublicMiddleware(s.bodySizeMiddleware(s.authStore.VaultAuthWithAdminBypass(s.sessionSecret, handler)))
+	return s.withObservability(s.bodySizeMiddleware(s.authStore.VaultAuthWithAdminBypass(s.sessionSecret, handler)))
 }
 
 // withAdminMiddleware applies observability + body size limit + admin session auth.
@@ -604,26 +615,26 @@ func (s *Server) withMiddleware(handler http.HandlerFunc) http.HandlerFunc {
 // If authStore is nil or sessionSecret is empty, admin auth is skipped (e.g. in tests).
 func (s *Server) withAdminMiddleware(handler http.HandlerFunc) http.HandlerFunc {
 	if s.authStore == nil || len(s.sessionSecret) == 0 {
-		return s.withPublicMiddleware(s.bodySizeMiddleware(handler))
+		return s.withObservability(s.bodySizeMiddleware(handler))
 	}
-	return s.withPublicMiddleware(s.bodySizeMiddleware(s.authStore.AdminAPIMiddleware(s.sessionSecret, handler)))
+	return s.withObservability(s.bodySizeMiddleware(s.authStore.AdminAPIMiddleware(s.sessionSecret, handler)))
 }
 
-// withAdminMiddlewareNoSizeLimit is like withAdminMiddleware but omits all body
-// size limits (both the 64 KB publicBodySizeMiddleware in withPublicMiddleware
-// and the 4 MB bodySizeMiddleware). Use this for routes that apply their own
-// limit (e.g. withLargeBody) so multiple MaxBytesReader wrappers don't compound.
+// withAdminMiddlewareNoSizeLimit is like withAdminMiddleware but omits the body
+// size limit. Use this for routes that apply their own limit (e.g. withLargeBody)
+// so multiple MaxBytesReader wrappers don't compound.
 func (s *Server) withAdminMiddlewareNoSizeLimit(handler http.HandlerFunc) http.HandlerFunc {
 	if s.authStore == nil || len(s.sessionSecret) == 0 {
-		return s.recoveryMiddleware(s.requestIDMiddleware(s.loggingMiddleware(handler)))
+		return s.withObservability(handler)
 	}
-	return s.recoveryMiddleware(s.requestIDMiddleware(s.loggingMiddleware(
-		s.authStore.AdminAPIMiddleware(s.sessionSecret, handler))))
+	return s.withObservability(s.authStore.AdminAPIMiddleware(s.sessionSecret, handler))
 }
 
-// bodySizeMiddleware limits request bodies to 4 MB to prevent resource exhaustion.
+// bodySizeMiddleware limits request bodies on authenticated routes to 32 MB to
+// prevent resource exhaustion. One engram batch (50 notes) and a bulk activation
+// payload fit comfortably; the import route uses withLargeBody (512 MB).
 func (s *Server) bodySizeMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	const maxBody = 4 << 20 // 4 MB
+	const maxBody = 32 << 20 // 32 MB
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 		next(w, r)
@@ -1100,7 +1111,7 @@ func newRateLimitMiddleware(global *rate.Limiter, ipCache *lru.Cache[string, *ra
 			}
 
 			// Resolve the client IP.
-			ip := clientIP(r)
+			ip := ClientIP(r)
 
 			// Look up or create the per-IP limiter.
 			limiter, ok := ipCache.Get(ip)
@@ -1125,10 +1136,12 @@ func newRateLimitMiddleware(global *rate.Limiter, ipCache *lru.Cache[string, *ra
 	}
 }
 
-// clientIP returns the direct TCP peer IP from r.RemoteAddr with the port
+// ClientIP returns the direct TCP peer IP from r.RemoteAddr with the port
 // stripped. Proxy headers (X-Forwarded-For, X-Real-IP) are intentionally
 // ignored because they are attacker-controlled without a trusted proxy list.
-func clientIP(r *http.Request) string {
+// Exported so the web UI can use the same client identity for its login
+// throttle.
+func ClientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
