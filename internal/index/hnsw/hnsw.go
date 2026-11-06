@@ -57,12 +57,6 @@ func (n *HNSWNode) setLayer(l int, neighbors [][16]byte) {
 	n.layers[l] = neighbors
 }
 
-func (n *HNSWNode) maxLayer() int {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-	return len(n.layers) - 1
-}
-
 // Index is the HNSW vector index.
 type Index struct {
 	mu             sync.RWMutex
