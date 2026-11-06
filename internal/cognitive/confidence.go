@@ -16,6 +16,10 @@ const (
 	EvidenceCoActivation  = 0.65
 	EvidenceUserConfirmed = 0.95
 	EvidenceUserRejected  = 0.05
+
+	// NegligibleDelta is the confidence change below which an update is not
+	// worth writing back.
+	NegligibleDelta = 0.001
 )
 
 // ConfidenceStore is the storage interface for confidence updates.

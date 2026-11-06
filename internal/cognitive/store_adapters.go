@@ -47,44 +47,6 @@ func (a *hebbianStoreAdapter) UpdateAssocWeightBatch(ctx context.Context, update
 	return a.store.UpdateAssocWeightBatch(ctx, storageUpdates)
 }
 
-// decayStoreAdapter adapts storage.EngineStore to cognitive.DecayStore.
-type decayStoreAdapter struct {
-	store storage.EngineStore
-}
-
-// NewDecayStoreAdapter returns a DecayStore backed by the given EngineStore.
-func NewDecayStoreAdapter(store storage.EngineStore) DecayStore {
-	return &decayStoreAdapter{store: store}
-}
-
-func (a *decayStoreAdapter) GetMetadataBatch(ctx context.Context, ws [8]byte, ids [][16]byte) ([]DecayMeta, error) {
-	ulidIDs := make([]storage.ULID, len(ids))
-	for i, id := range ids {
-		ulidIDs[i] = storage.ULID(id)
-	}
-	metas, err := a.store.GetMetadata(ctx, ws, ulidIDs)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]DecayMeta, len(metas))
-	for i, meta := range metas {
-		if meta != nil {
-			result[i] = DecayMeta{
-				ID:          [16]byte(meta.ID),
-				LastAccess:  meta.LastAccess,
-				AccessCount: meta.AccessCount,
-				Stability:   meta.Stability,
-				Relevance:   meta.Relevance,
-			}
-		}
-	}
-	return result, nil
-}
-
-func (a *decayStoreAdapter) UpdateRelevance(ctx context.Context, ws [8]byte, id [16]byte, relevance, stability float32) error {
-	return a.store.UpdateRelevance(ctx, ws, storage.ULID(id), relevance, stability)
-}
-
 // contradictStoreAdapter adapts storage.EngineStore to cognitive.ContradictionStore.
 type contradictStoreAdapter struct {
 	store storage.EngineStore

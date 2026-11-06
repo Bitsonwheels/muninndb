@@ -45,12 +45,12 @@ import (
 // tainted if it is a `.LastAccess` selector, or is assigned from an expression
 // containing one (transitively). That is what lets it see through the local
 // copy MOST guarded sites use — `lastAccess := eng.LastAccess`,
-// `lastAccess := time.Unix(0, item.LastAccess)`. Five of the six live sites
-// have that shape; DecayWorker.processBatch computes `now.Sub(c.LastAccess)`
-// off a direct selector and needs no dataflow at all, as does the
-// working.Manager.GC exemption. So a selector-only matcher would NOT report
-// zero and look green — it would report exactly those two and lose the other
-// five, which is why the vacuity check below cannot be a count and is instead
+// `lastAccess := time.Unix(0, item.LastAccess)`. Four of the five live sites
+// have that shape; the working.Manager.GC exemption computes `now.Sub(c.LastAccess)`
+// off a direct selector and needs no dataflow at all. (The dead DecayWorker had
+// that shape too; the audit removed it.) So a selector-only matcher would NOT report
+// zero and look green — it would report exactly that one and lose the other
+// four, which is why the vacuity check below cannot be a count and is instead
 // TestLastAccessCensusMatcherSeesLaunderedCopies: a fixture-driven unit test of
 // the matcher itself. (An earlier revision of this comment, and the commit
 // message that carried it, both claimed "EVERY guarded site" and "zero sites";
@@ -277,8 +277,6 @@ func TestLastAccessElapsedCensus(t *testing.T) {
 // same commit and says what replaced the site, which is a diff a reviewer can
 // read.
 var censusKnownSites = map[string]string{
-	"internal/cognitive/decay.go:DecayWorker.processBatch": "the decay worker's batch scan — computes elapsed time straight off " +
-		"a `.LastAccess` selector with no local copy, so it is one of the two sites a selector-only matcher still sees",
 	"internal/engine/activation/engine.go:computeComponents": "weighted_sum scoring: the recency term and the Ebbinghaus decay " +
 		"factor. This is the site #810's silently-empty recall came out of, and the site the original grep-based enumeration missed",
 	"internal/engine/activation/engine.go:computeACTR": "ACT-R base-level activation — the DEFAULT fusion mode, and the one that " +
@@ -362,7 +360,8 @@ func censusUnits(f *ast.File) []censusUnit {
 //
 // Every function is one shape the matcher must classify. The shapes are not
 // hypothetical — `localCopy` is what five of the six live sites look like,
-// `directSelector` is DecayWorker.processBatch, and the four launder shapes are
+// `directSelector` is the shape the (now deleted) DecayWorker.processBatch had,
+// and the four launder shapes are
 // the ones a bare-`*ast.Ident` assignment target silently dropped.
 const censusMatcherFixture = `package fixture
 
@@ -505,7 +504,7 @@ func TestLastAccessCensusMatcherSeesLaunderedCopies(t *testing.T) {
 		"localCopyGuarded":   {sinks: 1, guarded: true, why: "the guarded local copy — the IsUnsetTimestamp call must be recognised on the tainted ident"},
 		"transitiveCopy":     {sinks: 1, guarded: false, why: "taint must survive a second hop (a := x.LastAccess; b := a)"},
 		"copyThroughCall":    {sinks: 1, guarded: false, why: "taint must survive being rebuilt through a call (time.Unix(0, ...))"},
-		"directSelector":     {sinks: 1, guarded: false, why: "the no-dataflow shape (DecayWorker.processBatch)"},
+		"directSelector":     {sinks: 1, guarded: false, why: "the no-dataflow shape (the deleted DecayWorker.processBatch had it)"},
 		"structFieldLaunder": {sinks: 1, guarded: false, why: "h.la = rec.LastAccess must taint h"},
 		"sliceElemLaunder":   {sinks: 1, guarded: false, why: "buf[0] = rec.LastAccess must taint buf"},
 		"mapLaunder":         {sinks: 1, guarded: false, why: `mm["k"] = rec.LastAccess must taint mm`},

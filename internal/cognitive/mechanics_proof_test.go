@@ -17,167 +17,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Part 1: Decay math proofs
-// ---------------------------------------------------------------------------
-
-// TestProveDecay_KnownPoints verifies the Ebbinghaus curve at known mathematical checkpoints.
-func TestProveDecay_KnownPoints(t *testing.T) {
-	// At t=0, retention should be 1.0 (fresh memory)
-	r := cognitive.EbbinghausWithFloor(0, 14.0, 0.05)
-	if math.Abs(r-1.0) > 0.001 {
-		t.Errorf("at t=0 expected 1.0, got %.4f", r)
-	}
-	t.Logf("t=0   : retention=%.6f  (expected 1.0 exactly)", r)
-
-	// At t=stability (14 days), retention should be e^-1 ≈ 0.3679
-	r = cognitive.EbbinghausWithFloor(14.0, 14.0, 0.05)
-	expected := math.Exp(-1.0)
-	if math.Abs(r-expected) > 0.001 {
-		t.Errorf("at t=stability expected %.4f (1/e), got %.4f", expected, r)
-	}
-	t.Logf("t=14  : retention=%.6f  (expected 1/e = %.6f)", r, expected)
-
-	// At t=28 days (2x stability), retention should be e^-2 ≈ 0.1353
-	r = cognitive.EbbinghausWithFloor(28.0, 14.0, 0.05)
-	expected2x := math.Exp(-2.0)
-	if math.Abs(r-expected2x) > 0.001 {
-		t.Errorf("at t=2*stability expected %.4f (e^-2), got %.4f", expected2x, r)
-	}
-	t.Logf("t=28  : retention=%.6f  (expected e^-2 = %.6f)", r, expected2x)
-
-	// At t=100 days with stability=14, raw would be e^(-100/14) ≈ 0.00083 < floor
-	// So floor (0.05) should kick in
-	r = cognitive.EbbinghausWithFloor(100, 14.0, 0.05)
-	if r != 0.05 {
-		t.Errorf("floor should apply at t=100 days, expected 0.05, got %.6f", r)
-	}
-	rawAt100 := math.Exp(-100.0 / 14.0)
-	t.Logf("t=100 : retention=%.6f  (raw=%.6f, floor=0.05 kicks in)", r, rawAt100)
-
-	// Floor protection: result should never go below floor, never above 1.0
-	violations := 0
-	for days := 0.0; days <= 365.0; days += 10 {
-		r = cognitive.EbbinghausWithFloor(days, 14.0, 0.05)
-		if r < 0.05 {
-			t.Errorf("result %.6f below floor 0.05 at days=%.0f", r, days)
-			violations++
-		}
-		if r > 1.0 {
-			t.Errorf("result %.6f above 1.0 at days=%.0f", r, days)
-			violations++
-		}
-	}
-	t.Logf("Range check (0-365 days, step 10): %d violations (expected 0)", violations)
-}
-
-// TestProveDecay_Monotonic verifies decay never increases over time (without re-access).
-func TestProveDecay_Monotonic(t *testing.T) {
-	prev := cognitive.EbbinghausWithFloor(0, 14.0, 0.05)
-	nonMonotonicCount := 0
-	for days := 1.0; days <= 60.0; days++ {
-		r := cognitive.EbbinghausWithFloor(days, 14.0, 0.05)
-		// Once we hit the floor (0.05) the curve is flat — that is expected and OK.
-		// Non-monotonic means strictly greater than prev before hitting the floor.
-		if r > prev && prev > 0.05 {
-			t.Errorf("decay is not monotonic: day %.0f (%.6f) > day %.0f (%.6f)", days, r, days-1, prev)
-			nonMonotonicCount++
-		}
-		prev = r
-	}
-	t.Logf("Monotonic check over 60 days: %d violations (expected 0)", nonMonotonicCount)
-
-	// Verify the floor is reached somewhere between day 40-60 with stability=14
-	floorDay := 0.0
-	for days := 1.0; days <= 200.0; days++ {
-		r := cognitive.EbbinghausWithFloor(days, 14.0, 0.05)
-		if r == 0.05 {
-			floorDay = days
-			break
-		}
-	}
-	t.Logf("Floor (0.05) first reached at day=%.0f with stability=14.0", floorDay)
-}
-
-// TestProveDecay_StabilityGrowthWithAccess verifies that repeated accesses build stability.
-func TestProveDecay_StabilityGrowthWithAccess(t *testing.T) {
-	// More accesses → higher stability → slower decay
-	s1 := cognitive.ComputeStability(1, 7.0)
-	s10 := cognitive.ComputeStability(10, 7.0)
-	s100 := cognitive.ComputeStability(100, 7.0)
-
-	t.Logf("Stability: 1-access=%.2f, 10-access=%.2f, 100-access=%.2f (max=%.0f)",
-		s1, s10, s100, cognitive.MaxStability)
-
-	if s10 <= s1 {
-		t.Errorf("10 accesses should give higher stability than 1: s1=%.2f s10=%.2f", s1, s10)
-	}
-	if s100 <= s10 {
-		t.Errorf("100 accesses should give higher stability than 10: s10=%.2f s100=%.2f", s10, s100)
-	}
-	if s100 > cognitive.MaxStability {
-		t.Errorf("stability %.2f exceeds max %.0f", s100, cognitive.MaxStability)
-	}
-
-	// With high stability (100 accesses), a memory should still be >50% after 60 days
-	r60 := cognitive.EbbinghausWithFloor(60, s100, cognitive.DefaultFloor)
-	t.Logf("Well-reinforced memory (s=%.2f) retention at 60 days: %.1f%%", s100, r60*100)
-	if r60 < 0.5 {
-		t.Errorf("well-reinforced memory (%.2f stability) at 60 days: %.4f, expected >0.5", s100, r60)
-	}
-
-	// Single-access memory at 60 days should be much lower (near floor)
-	r60single := cognitive.EbbinghausWithFloor(60, s1, cognitive.DefaultFloor)
-	t.Logf("Single-access memory  (s=%.2f) retention at 60 days: %.1f%%", s1, r60single*100)
-	if r60 <= r60single {
-		t.Errorf("well-reinforced memory should retain more than single-access: %.4f vs %.4f", r60, r60single)
-	}
-}
-
-// TestProveDecay_SpacedRepetitionBeatsConcentrated verifies spaced accesses beat cramming.
-func TestProveDecay_SpacedRepetitionBeatsConcentrated(t *testing.T) {
-	// Same number of accesses but spread out vs. crammed
-	stabSpaced := cognitive.ComputeStability(20, 14.0) // 20 accesses, 2 weeks apart
-	stabCrammed := cognitive.ComputeStability(20, 0.1) // 20 accesses, ~2.4 hours apart
-
-	t.Logf("Spaced (2wk intervals): %.2f days stability", stabSpaced)
-	t.Logf("Crammed (2hr intervals): %.2f days stability", stabCrammed)
-	t.Logf("Spaced advantage: +%.2f days (%.1f%% better)", stabSpaced-stabCrammed, (stabSpaced/stabCrammed-1)*100)
-
-	if stabSpaced <= stabCrammed {
-		t.Errorf("spaced repetition (%.2f) should give higher stability than cramming (%.2f)", stabSpaced, stabCrammed)
-	}
-
-	// Demonstrate real-world impact: retention at 90 days
-	r90spaced := cognitive.EbbinghausWithFloor(90, stabSpaced, cognitive.DefaultFloor)
-	r90crammed := cognitive.EbbinghausWithFloor(90, stabCrammed, cognitive.DefaultFloor)
-	t.Logf("Retention at 90 days — spaced: %.1f%%, crammed: %.1f%%", r90spaced*100, r90crammed*100)
-}
-
-// TestProveDecay_MathFormula verifies the raw formula: exp(-days/stability).
-func TestProveDecay_MathFormula(t *testing.T) {
-	// Spot-check specific values against hand-computed math
-	type tc struct {
-		days, stab float64
-		wantExpr   string
-	}
-	checks := []tc{
-		{7, 14.0, "e^(-0.5)"},
-		{21, 14.0, "e^(-1.5)"},
-		{42, 14.0, "e^(-3.0)"},
-	}
-	for _, c := range checks {
-		raw := math.Exp(-c.days / c.stab)
-		got := cognitive.EbbinghausWithFloor(c.days, c.stab, 0.0) // floor=0 to see raw value
-		diff := math.Abs(got - raw)
-		if diff > 1e-10 {
-			t.Errorf("days=%.0f stab=%.0f: formula gave %.8f, expected %s=%.8f", c.days, c.stab, got, c.wantExpr, raw)
-		}
-		t.Logf("days=%2.0f stab=%4.0f → %s = %.6f  (diff=%.2e)", c.days, c.stab, c.wantExpr, got, diff)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Part 2: Hebbian weight proofs
+// Part 1: Hebbian weight proofs
 // ---------------------------------------------------------------------------
 
 // TestProveHebbian_WeightGrowthMath verifies multiplicative update math.
@@ -307,7 +147,7 @@ func TestProveHebbian_SignalProduct(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Part 3: Contradiction detection proofs
+// Part 2: Contradiction detection proofs
 // ---------------------------------------------------------------------------
 
 // TestProveContradiction_KnownPairs verifies all documented contradiction pairs.
@@ -410,7 +250,7 @@ func TestProveContradiction_Symmetry(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Part 4: End-to-end integration via live API
+// Part 3: End-to-end integration via live API
 // ---------------------------------------------------------------------------
 
 // bearerTransport injects a Bearer token into every outgoing request.
@@ -614,7 +454,7 @@ func TestLiveIntegration_WriteAndActivate(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Part 5: System fix verification
+// Part 4: System fix verification
 // ---------------------------------------------------------------------------
 
 // mockHebbianStore implements the HebbianStore interface for testing.
@@ -820,7 +660,7 @@ func TestProveWorker_DormancyWakeUp(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Part 6: Live integration — system pipeline proofs
+// Part 5: Live integration — system pipeline proofs
 // ---------------------------------------------------------------------------
 
 // TestLiveIntegration_ContradictionDetection verifies that contradicting engrams
