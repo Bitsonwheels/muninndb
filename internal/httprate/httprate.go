@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"strconv"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -23,10 +24,23 @@ const (
 	ipCacheSize = 50_000
 )
 
-// ClientIP returns the direct TCP peer IP from r.RemoteAddr with the port
-// stripped. Proxy headers (X-Forwarded-For, X-Real-IP) are intentionally
-// ignored because they are attacker-controlled without a trusted proxy list.
+// ClientIP returns the client IP. When the request carries a proxy header
+// (X-Real-IP, then the first entry of X-Forwarded-For) it is used, so a
+// team behind one proxy does not share a single rate-limit bucket. Only the
+// first (leftmost) X-Forwarded-For value is taken; the value is not
+// validated, so deploy behind a trusted proxy.
 func ClientIP(r *http.Request) string {
+	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
+		return ip
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			xff = xff[:i]
+		}
+		if ip := strings.TrimSpace(xff); ip != "" {
+			return ip
+		}
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

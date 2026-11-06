@@ -133,21 +133,31 @@ func TestMiddleware_RetryAfterHeader(t *testing.T) {
 	}
 }
 
-func TestClientIP_IgnoresXForwardedFor(t *testing.T) {
+func TestClientIP_HonorsXForwardedFor(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "192.0.2.1:54321"
-	r.Header.Set("X-Forwarded-For", "203.0.113.50")
-	if got := ClientIP(r); got != "192.0.2.1" {
-		t.Fatalf("X-Forwarded-For should be ignored; want 192.0.2.1, got %s", got)
+	r.Header.Set("X-Forwarded-For", "203.0.113.50, 10.0.0.1")
+	if got := ClientIP(r); got != "203.0.113.50" {
+		t.Fatalf("want the first X-Forwarded-For entry, got %s", got)
 	}
 }
 
-func TestClientIP_IgnoresXRealIP(t *testing.T) {
+func TestClientIP_HonorsXRealIP(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "192.0.2.1:54321"
 	r.Header.Set("X-Real-IP", "198.51.100.22")
-	if got := ClientIP(r); got != "192.0.2.1" {
-		t.Fatalf("X-Real-IP should be ignored; want 192.0.2.1, got %s", got)
+	if got := ClientIP(r); got != "198.51.100.22" {
+		t.Fatalf("want the X-Real-IP value, got %s", got)
+	}
+}
+
+func TestClientIP_XRealIPTakesPrecedence(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "192.0.2.1:54321"
+	r.Header.Set("X-Real-IP", "198.51.100.22")
+	r.Header.Set("X-Forwarded-For", "203.0.113.50")
+	if got := ClientIP(r); got != "198.51.100.22" {
+		t.Fatalf("X-Real-IP should win, got %s", got)
 	}
 }
 
