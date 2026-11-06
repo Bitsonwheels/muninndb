@@ -25,11 +25,16 @@ func newBypassTestStore(t *testing.T) *Store {
 	return NewStore(db)
 }
 
+// testFingerprint is the password fingerprint carried by test session tokens.
+// The pure session helpers do not know about the admin store, so the tests
+// pass the fingerprint explicitly.
+const testFingerprint = "0123456789abcdef"
+
 // --- Session Token Tests ---
 
 func TestSessionToken_TamperedPayload(t *testing.T) {
 	secret := []byte("test-secret-key-32-bytes-long!!")
-	token, err := NewSessionToken("admin", secret)
+	token, err := NewSessionToken("admin", testFingerprint, secret)
 	if err != nil {
 		t.Fatalf("NewSessionToken: %v", err)
 	}
@@ -43,14 +48,14 @@ func TestSessionToken_TamperedPayload(t *testing.T) {
 	tampered[0] ^= 0xFF
 	tamperedToken := string(tampered) + "." + parts[1]
 
-	if validateSessionToken(tamperedToken, secret) {
+	if validateSessionToken(tamperedToken, testFingerprint, secret) {
 		t.Error("tampered payload should not validate")
 	}
 }
 
 func TestSessionToken_TamperedHMAC(t *testing.T) {
 	secret := []byte("test-secret-key-32-bytes-long!!")
-	token, err := NewSessionToken("admin", secret)
+	token, err := NewSessionToken("admin", testFingerprint, secret)
 	if err != nil {
 		t.Fatalf("NewSessionToken: %v", err)
 	}
@@ -64,7 +69,7 @@ func TestSessionToken_TamperedHMAC(t *testing.T) {
 	tampered[0] ^= 0xFF
 	tamperedToken := parts[0] + "." + string(tampered)
 
-	if validateSessionToken(tamperedToken, secret) {
+	if validateSessionToken(tamperedToken, testFingerprint, secret) {
 		t.Error("tampered HMAC should not validate")
 	}
 }
@@ -73,12 +78,12 @@ func TestSessionToken_ExpiredToken(t *testing.T) {
 	secret := []byte("test-secret-key-32-bytes-long!!")
 
 	expiry := time.Now().Add(-1 * time.Hour).Unix()
-	payload := "admin|" + strconv.FormatInt(expiry, 10)
+	payload := "admin|" + strconv.FormatInt(expiry, 10) + "|" + testFingerprint
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(payload))
 	sig := computeHMAC(encoded, secret)
 	token := encoded + "." + sig
 
-	if validateSessionToken(token, secret) {
+	if validateSessionToken(token, testFingerprint, secret) {
 		t.Error("expired token should not validate")
 	}
 }
@@ -87,12 +92,12 @@ func TestSessionToken_WrongSecret(t *testing.T) {
 	secretA := []byte("secret-A-32-bytes-long-padding!!")
 	secretB := []byte("secret-B-32-bytes-long-padding!!")
 
-	token, err := NewSessionToken("admin", secretA)
+	token, err := NewSessionToken("admin", testFingerprint, secretA)
 	if err != nil {
 		t.Fatalf("NewSessionToken: %v", err)
 	}
 
-	if validateSessionToken(token, secretB) {
+	if validateSessionToken(token, testFingerprint, secretB) {
 		t.Error("token signed with secret A should not validate with secret B")
 	}
 }
@@ -100,17 +105,17 @@ func TestSessionToken_WrongSecret(t *testing.T) {
 func TestSessionToken_EmptySecret(t *testing.T) {
 	emptySecret := []byte{}
 
-	token, err := NewSessionToken("admin", emptySecret)
+	token, err := NewSessionToken("admin", testFingerprint, emptySecret)
 	if err != nil {
 		t.Fatalf("NewSessionToken with empty secret should not panic: %v", err)
 	}
 
 	otherSecret := []byte("other-secret")
-	if validateSessionToken(token, otherSecret) {
+	if validateSessionToken(token, testFingerprint, otherSecret) {
 		t.Error("token created with empty secret should not validate with different secret")
 	}
 
-	if validateSessionToken("random.garbage", emptySecret) {
+	if validateSessionToken("random.garbage", testFingerprint, emptySecret) {
 		t.Error("garbage token should not validate even with empty secret")
 	}
 }
@@ -134,7 +139,7 @@ func TestSessionToken_MalformedFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if validateSessionToken(tt.token, secret) {
+			if validateSessionToken(tt.token, testFingerprint, secret) {
 				t.Errorf("malformed token %q should not validate", tt.token)
 			}
 		})

@@ -600,9 +600,9 @@ func TestLogs_RequiresAuth(t *testing.T) {
 }
 
 func TestLogs_AllowedWithValidSession(t *testing.T) {
-	srv, _, secret := newAuthServer(t, nil)
+	srv, store, secret := newAuthServer(t, nil)
 
-	token, err := auth.NewSessionToken("admin", secret)
+	token, err := store.NewSessionToken("admin", secret)
 	if err != nil {
 		t.Fatalf("NewSessionToken: %v", err)
 	}
@@ -774,9 +774,9 @@ func TestClearLogs_RequiresAuth(t *testing.T) {
 }
 
 func TestClearLogs_AllowedWithValidSession(t *testing.T) {
-	srv, _, secret := newAuthServer(t, nil)
+	srv, store, secret := newAuthServer(t, nil)
 
-	token, err := auth.NewSessionToken("admin", secret)
+	token, err := store.NewSessionToken("admin", secret)
 	if err != nil {
 		t.Fatalf("NewSessionToken: %v", err)
 	}

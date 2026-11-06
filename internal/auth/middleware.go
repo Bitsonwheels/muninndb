@@ -78,10 +78,10 @@ func (s *Store) VaultAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 // AdminSessionMiddleware checks for a valid admin session cookie.
 // Redirects to /login on failure — suitable for browser-facing UI routes.
-func AdminSessionMiddleware(secret []byte, next http.HandlerFunc) http.HandlerFunc {
+func (s *Store) AdminSessionMiddleware(secret []byte, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("muninn_session")
-		if err != nil || !validateSessionToken(cookie.Value, secret) {
+		if err != nil || !s.ValidateSessionToken(cookie.Value, secret) {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
@@ -94,7 +94,7 @@ func AdminSessionMiddleware(secret []byte, next http.HandlerFunc) http.HandlerFu
 func (s *Store) AdminAPIMiddleware(secret []byte, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("muninn_session")
-		if err != nil || !validateSessionToken(cookie.Value, secret) {
+		if err != nil || !s.ValidateSessionToken(cookie.Value, secret) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error":{"code":"AUTH_FAILED","message":"admin session required"}}`))
@@ -117,7 +117,7 @@ func (s *Store) VaultAuthWithAdminBypass(secret []byte, next http.HandlerFunc) h
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Admin session bypass — authenticated Web UI gets full access to any vault.
 		cookie, err := r.Cookie("muninn_session")
-		if err == nil && validateSessionToken(cookie.Value, secret) {
+		if err == nil && s.ValidateSessionToken(cookie.Value, secret) {
 			vault := r.URL.Query().Get("vault")
 			if vault == "" {
 				vault = "default"

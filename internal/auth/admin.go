@@ -61,6 +61,11 @@ func (s *Store) ValidateAdmin(username, password string) error {
 }
 
 // ChangeAdminPassword updates the password for an existing admin user.
+//
+// Changing the password ends every open session: the session token carries a
+// fingerprint of the password hash, so old tokens no longer validate.
+// Re-setting the same password is a no-op — otherwise a restart with
+// MUNINN_ADMIN_PASSWORD set would re-hash the password and log everyone out.
 func (s *Store) ChangeAdminPassword(username, newPassword string) error {
 	// Cluster single-writer gate (#596). Bootstrap's MUNINN_ADMIN_PASSWORD seed
 	// also calls this, but it runs before SetWriteGate is wired, so seeding a
@@ -79,6 +84,9 @@ func (s *Store) ChangeAdminPassword(username, newPassword string) error {
 		return jsonErr
 	}
 	closer.Close()
+	if bcrypt.CompareHashAndPassword(u.PassHash, []byte(newPassword)) == nil {
+		return nil // same password: keep the hash (and every session) alive
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
@@ -89,6 +97,47 @@ func (s *Store) ChangeAdminPassword(username, newPassword string) error {
 		return err
 	}
 	return s.set(key, encoded)
+}
+
+// adminFingerprint returns the session fingerprint for an admin user, derived
+// from the stored password hash and the session secret.
+func (s *Store) adminFingerprint(username string, secret []byte) (string, bool) {
+	data, closer, err := s.db.Get(adminUserKey(username))
+	if err != nil {
+		return "", false
+	}
+	defer closer.Close()
+
+	var user AdminUser
+	if err := json.Unmarshal(data, &user); err != nil {
+		return "", false
+	}
+	return sessionFingerprint(user.PassHash, secret), true
+}
+
+// NewSessionToken creates a session token for an admin user, bound to the
+// current password hash. Changing the password invalidates the token.
+func (s *Store) NewSessionToken(username string, secret []byte) (string, error) {
+	fingerprint, ok := s.adminFingerprint(username, secret)
+	if !ok {
+		return "", fmt.Errorf("admin user not found")
+	}
+	return NewSessionToken(username, fingerprint, secret)
+}
+
+// ValidateSessionToken reports whether the token is a valid, unexpired session
+// for an existing admin user whose password has not changed since it was
+// issued.
+func (s *Store) ValidateSessionToken(token string, secret []byte) bool {
+	username, _, _, ok := parseSessionToken(token, secret)
+	if !ok {
+		return false
+	}
+	fingerprint, ok := s.adminFingerprint(username, secret)
+	if !ok {
+		return false
+	}
+	return validateSessionToken(token, fingerprint, secret)
 }
 
 // AdminExists returns true if at least one admin user has been created.

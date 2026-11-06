@@ -956,7 +956,10 @@ func TestVaultRouting_ResolveContradiction_ExplicitVault(t *testing.T) {
 	srv := NewServer("localhost:0", eng, store, secret, nil, EmbedInfo{}, EnrichInfo{}, nil, "", nil)
 
 	// Create a valid session token to authenticate with AdminAPIMiddleware.
-	token, err := auth.NewSessionToken("admin", secret)
+	if err := store.CreateAdmin("admin", "password"); err != nil {
+		t.Fatalf("CreateAdmin: %v", err)
+	}
+	token, err := store.NewSessionToken("admin", secret)
 	if err != nil {
 		t.Fatalf("NewSessionToken: %v", err)
 	}

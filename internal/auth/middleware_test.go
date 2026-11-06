@@ -14,9 +14,14 @@ import (
 	"github.com/scrypster/muninndb/internal/auth"
 )
 
-func makeSessionToken(t *testing.T, secret []byte) string {
+func makeSessionToken(t *testing.T, store *auth.Store, secret []byte) string {
 	t.Helper()
-	token, err := auth.NewSessionToken("admin", secret)
+	// Session tokens are bound to the admin's password hash, so an admin user
+	// has to exist before a token can be minted.
+	if err := store.CreateAdmin("admin", "password"); err != nil {
+		t.Fatalf("CreateAdmin: %v", err)
+	}
+	token, err := store.NewSessionToken("admin", secret)
 	if err != nil {
 		t.Fatalf("makeSessionToken: %v", err)
 	}
@@ -97,7 +102,7 @@ func TestVaultAuthWithAdminBypass_SetsFullMode(t *testing.T) {
 
 	handler := store.VaultAuthWithAdminBypass(secret, inner)
 	req := httptest.NewRequest("GET", "/?vault=default", nil)
-	token := makeSessionToken(t, secret)
+	token := makeSessionToken(t, store, secret)
 	req.AddCookie(&http.Cookie{Name: "muninn_session", Value: token})
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 	if !called {
@@ -223,14 +228,18 @@ func TestObserveFromContext_Defaults(t *testing.T) {
 }
 
 func TestAdminSessionMiddleware_ValidCookie(t *testing.T) {
+	store := newTestStore(t)
 	secret := []byte("test-secret-32-bytes-long-enough!")
-	token, err := auth.NewSessionToken("admin", secret)
+	if err := store.CreateAdmin("admin", "password"); err != nil {
+		t.Fatalf("CreateAdmin: %v", err)
+	}
+	token, err := store.NewSessionToken("admin", secret)
 	if err != nil {
 		t.Fatalf("NewSessionToken: %v", err)
 	}
 
 	reached := false
-	handler := auth.AdminSessionMiddleware(secret, func(w http.ResponseWriter, r *http.Request) {
+	handler := store.AdminSessionMiddleware(secret, func(w http.ResponseWriter, r *http.Request) {
 		reached = true
 		w.WriteHeader(http.StatusOK)
 	})
@@ -249,9 +258,10 @@ func TestAdminSessionMiddleware_ValidCookie(t *testing.T) {
 }
 
 func TestAdminSessionMiddleware_NoCookie(t *testing.T) {
+	store := newTestStore(t)
 	secret := []byte("test-secret-32-bytes-long-enough!")
 
-	handler := auth.AdminSessionMiddleware(secret, func(w http.ResponseWriter, r *http.Request) {
+	handler := store.AdminSessionMiddleware(secret, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -268,9 +278,10 @@ func TestAdminSessionMiddleware_NoCookie(t *testing.T) {
 }
 
 func TestAdminSessionMiddleware_InvalidCookie(t *testing.T) {
+	store := newTestStore(t)
 	secret := []byte("test-secret-32-bytes-long-enough!")
 
-	handler := auth.AdminSessionMiddleware(secret, func(w http.ResponseWriter, r *http.Request) {
+	handler := store.AdminSessionMiddleware(secret, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -287,7 +298,10 @@ func TestAdminSessionMiddleware_InvalidCookie(t *testing.T) {
 func TestAdminAPIMiddleware_ValidCookie(t *testing.T) {
 	s := newTestStore(t)
 	secret := []byte("test-secret-32-bytes-long-enough!")
-	token, err := auth.NewSessionToken("admin", secret)
+	if err := s.CreateAdmin("admin", "password"); err != nil {
+		t.Fatalf("CreateAdmin: %v", err)
+	}
+	token, err := s.NewSessionToken("admin", secret)
 	if err != nil {
 		t.Fatalf("NewSessionToken: %v", err)
 	}
