@@ -29,6 +29,12 @@ const (
 // team behind one proxy does not share a single rate-limit bucket. Only the
 // first (leftmost) X-Forwarded-For value is taken; the value is not
 // validated, so deploy behind a trusted proxy.
+//
+// ponytail: trusted-proxy list not implemented. Without one, a client can
+// spoof X-Forwarded-For and evade the per-IP limit. Upgrade path: add a
+// MUNINN_TRUSTED_PROXIES env var (comma-separated CIDRs) and only honor
+// the headers when r.RemoteAddr is in that list; otherwise fall back to
+// RemoteAddr. See audit finding 20 / review non-blocker 3.
 func ClientIP(r *http.Request) string {
 	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
 		return ip

@@ -165,6 +165,10 @@ func (w *Worker) Submit(job IndexJob) bool {
 	case <-timer.C:
 		w.indexInline(job)
 		return true
+	case <-w.stopCh:
+		// The worker is shutting down; do not block the writer or run
+		// indexInline against a store that may already be closed.
+		return false
 	}
 }
 

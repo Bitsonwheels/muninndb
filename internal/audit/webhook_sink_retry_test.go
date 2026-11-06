@@ -90,3 +90,31 @@ func TestWebhookSink_PendingBatchStaysCapped(t *testing.T) {
 	t.Fatalf("pending events = %d after the collector failed, want at most %d (the failed batch must be kept)",
 		pending, maxPendingEvents)
 }
+
+// TestWebhookSink_WriteCapsPending proves that Write itself caps the pending
+// list, so a sustained outage + high write rate cannot grow memory between
+// two flush cycles (5s).
+func TestWebhookSink_WriteCapsPending(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	sink := NewWebhookSink(srv.URL, 1*time.Hour) // long interval -> no auto-flush
+	defer sink.Close()
+
+	for i := 0; i < maxPendingEvents+50; i++ {
+		if err := sink.Write(AuditEvent{Action: "x"}); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+	sink.mu.Lock()
+	n := len(sink.batch)
+	sink.mu.Unlock()
+	if n > maxPendingEvents {
+		t.Fatalf("pending list grew to %d, want <= %d", n, maxPendingEvents)
+	}
+	if n == 0 {
+		t.Fatalf("pending list is empty, want capped-but-nonempty")
+	}
+}

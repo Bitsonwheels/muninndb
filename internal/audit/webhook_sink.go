@@ -51,6 +51,16 @@ func NewWebhookSink(url string, flushInterval time.Duration) *WebhookSink {
 func (s *WebhookSink) Write(e AuditEvent) error {
 	s.mu.Lock()
 	s.batch = append(s.batch, e)
+	// Cap the pending list here too: requeue only caps after a failed flush,
+	// so under sustained outage + high write rate the list could grow
+	// unbounded between two flush cycles (5s). Drop the oldest, matching
+	// requeue's policy.
+	if len(s.batch) > maxPendingEvents {
+		dropped := len(s.batch) - maxPendingEvents
+		s.batch = s.batch[dropped:]
+		slog.Warn("audit: webhook: pending events dropped",
+			"dropped", dropped, "limit", maxPendingEvents)
+	}
 	s.mu.Unlock()
 	return nil
 }
