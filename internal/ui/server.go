@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -350,7 +351,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   s.tlsConfig != nil,
+		Secure:   s.tlsConfig != nil || r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
 		MaxAge:   86400,
 	})
 	if s.auditLog != nil {

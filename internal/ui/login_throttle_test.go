@@ -56,6 +56,31 @@ func TestAdminLogin_ThrottlesFailedAttempts(t *testing.T) {
 	}
 }
 
+// TestAdminLogin_CookieSecureFollowsRequest proves that the session cookie is
+// marked Secure when the request arrived over HTTPS (directly or via a
+// TLS-terminating proxy), so it is never sent over plain HTTP in production.
+func TestAdminLogin_CookieSecureFollowsRequest(t *testing.T) {
+	srv := newLoginTestServer(t)
+
+	body := `{"username":"admin","password":"secret123"}`
+	req := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("no session cookie set")
+	}
+	if !cookies[0].Secure {
+		t.Errorf("session cookie must be Secure for an HTTPS request, got Secure=%v", cookies[0].Secure)
+	}
+}
+
 // TestAdminLogin_SuccessResetsThrottle proves that a correct password clears
 // the failure counter - the CLI re-authenticates on every start and must not
 // lock itself out.
