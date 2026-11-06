@@ -47,7 +47,7 @@ func TestDedup_DoesNotMutateCachedRepresentative(t *testing.T) {
 	}
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, &ConsolidationReport{}, vault); err != nil {
 		t.Fatal(err)
 	}

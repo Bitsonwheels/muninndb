@@ -33,7 +33,7 @@ func TestDedup_SeparationGuard_KeepsDivergingNearDuplicate(t *testing.T) {
 		Confidence: 0.5, Relevance: 0.5, Stability: 30, Embedding: embed,
 	})
 
-	w := &Worker{Engine: &mockEngineInterface{store: store}, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: &mockEngineInterface{store: store}, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 	if err := w.runPhase2Dedup(ctx, store, ws, report, vault); err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestDedup_SeparationGuard_NoTagContamination(t *testing.T) {
 		Confidence: 0.4, Relevance: 0.4, Stability: 30, Embedding: embed, Tags: []string{"diverging_tag"},
 	})
 
-	w := &Worker{Engine: &mockEngineInterface{store: store}, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: &mockEngineInterface{store: store}, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	if err := w.runPhase2Dedup(ctx, store, ws, &ConsolidationReport{}, vault); err != nil {
 		t.Fatal(err)
 	}

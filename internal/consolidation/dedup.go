@@ -79,8 +79,17 @@ func (w *Worker) runPhase2Dedup(ctx context.Context, store *storage.PebbleStore,
 		}
 	}
 
-	if len(withEmbed) < 2 {
-		slog.Debug("consolidation phase 2 (dedup): not enough engrams with embeddings", "count", len(withEmbed))
+	// Guard against the normalization anchor flip (issue #311): archiving even a
+	// single duplicate cluster in a small vault can shift the per-query
+	// normalization and flip top-1 recall. The minimum applies to every path
+	// that runs phase 2 - the scheduler path (RunOnce) and the dream path.
+	minSize := w.MinDedupVaultSize
+	if minSize <= 0 {
+		minSize = 20
+	}
+	if len(withEmbed) < minSize {
+		slog.Info("consolidation phase 2 (dedup): skipped, vault below the minimum size",
+			"vault", vault, "count", len(withEmbed), "min", minSize)
 		return nil
 	}
 

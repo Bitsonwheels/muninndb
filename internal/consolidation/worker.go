@@ -71,9 +71,9 @@ func (w *Worker) RunOnce(ctx context.Context, vault string) (*ConsolidationRepor
 	}
 
 	// Phase 2: Semantic Deduplication
-	// TODO(#311-followup): RunOnce (background scheduler path) calls runPhase2Dedup
-	// directly without a vault-size guard. Small vaults processed via the scheduler
-	// are still vulnerable to the normalization anchor flip. Track as a follow-up.
+	// runPhase2Dedup applies the small-vault guard itself, so the scheduler path
+	// is protected against the normalization anchor flip (#311) just like the
+	// dream path.
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
 		slog.Warn("consolidation: phase 2 (dedup) failed", "vault", vault, "error", err)
 		report.Errors = append(report.Errors, "phase2_dedup: "+err.Error())

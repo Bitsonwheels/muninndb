@@ -80,7 +80,7 @@ func TestDedup_IdenticalEmbeddings_MergesCluster(t *testing.T) {
 	})
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -144,7 +144,7 @@ func TestDedup_AccessCountAbsorbsArchivedDuplicates(t *testing.T) {
 	}
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -185,7 +185,7 @@ func TestDedup_DryRun_DoesNotBumpAccessCount(t *testing.T) {
 	})
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100, DryRun: true}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100, DryRun: true}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -221,7 +221,7 @@ func TestDedup_TagMerging(t *testing.T) {
 	})
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -265,7 +265,7 @@ func TestDedup_DryRun_NoMutation(t *testing.T) {
 	})
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100, DryRun: true}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100, DryRun: true}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -332,7 +332,7 @@ func TestDedup_RespectsMaxDedupCap(t *testing.T) {
 	}
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 2, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 2, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -371,7 +371,7 @@ func TestDedup_MaxDedupCapDefersRestOfClusterToNextRun(t *testing.T) {
 	}
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 1, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 1, MaxTransitive: 100}
 
 	report1 := &ConsolidationReport{}
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report1, vault); err != nil {
@@ -437,7 +437,7 @@ func TestDedup_NoClustersWhenDissimilar(t *testing.T) {
 	})
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -471,7 +471,7 @@ func TestDedup_SkipsEngramsWithoutEmbeddings(t *testing.T) {
 	})
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -490,7 +490,7 @@ func TestDedup_EmptyVault(t *testing.T) {
 	ctx := context.Background()
 	wsPrefix := store.ResolveVaultPrefix("dedup_empty")
 
-	w := &Worker{MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, "dedup_empty"); err != nil {
@@ -527,7 +527,7 @@ func TestDedup_MultipleClusters(t *testing.T) {
 	}
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -562,7 +562,7 @@ func TestDedup_RepresentativeElection(t *testing.T) {
 	})
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -599,7 +599,7 @@ func TestDedup_NearThresholdSimilarity(t *testing.T) {
 	})
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -635,7 +635,7 @@ func TestDedup_ThreeWayCluster(t *testing.T) {
 	})
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -694,7 +694,7 @@ func TestDedup_ArchivesCorrectEngrams(t *testing.T) {
 	})
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 1000, DryRun: false}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 1000, DryRun: false}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -813,7 +813,7 @@ func TestDedup_Determinism(t *testing.T) {
 		_ = b1
 
 		mock := &mockEngineInterface{store: store}
-		w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+		w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 		report := &ConsolidationReport{}
 		if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
 			t.Fatalf("[%s] runPhase2Dedup: %v", label, err)
@@ -881,7 +881,7 @@ func TestDedup_V2Embeddings_MergesCluster(t *testing.T) {
 	}
 
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {

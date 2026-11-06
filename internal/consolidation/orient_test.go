@@ -129,7 +129,7 @@ func TestDedup_ConfigurableThreshold(t *testing.T) {
 
 	// At default threshold (0.95), these should NOT cluster.
 	mock := &mockEngineInterface{store: store}
-	w := &Worker{Engine: mock, MaxDedup: 100, MaxTransitive: 100}
+	w := &Worker{Engine: mock, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100}
 	report := &ConsolidationReport{}
 
 	if err := w.runPhase2Dedup(ctx, store, wsPrefix, report, vault); err != nil {
@@ -154,7 +154,7 @@ func TestDedup_ConfigurableThreshold(t *testing.T) {
 	})
 
 	mock2 := &mockEngineInterface{store: store2}
-	w2 := &Worker{Engine: mock2, MaxDedup: 100, MaxTransitive: 100, DedupThreshold: 0.85}
+	w2 := &Worker{Engine: mock2, MinDedupVaultSize: 2, MaxDedup: 100, MaxTransitive: 100, DedupThreshold: 0.85}
 	report2 := &ConsolidationReport{}
 
 	if err := w2.runPhase2Dedup(ctx, store2, wsPrefix2, report2, vault); err != nil {
