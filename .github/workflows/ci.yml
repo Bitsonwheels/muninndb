@@ -32,6 +32,11 @@ jobs:
             exit 1
           fi
 
+      # The installer must refuse a download it cannot verify. The test drives
+      # install.sh against a fake curl, so it needs no network.
+      - name: Install script checks
+        run: sh scripts/test-install.sh
+
       # Cache the binary assets (ORT library + ONNX model).
       # These are ~130MB total and don't change between commits unless the
       # ORT version or model changes. The cache key includes both versions.
