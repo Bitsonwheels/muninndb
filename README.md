@@ -54,6 +54,61 @@ That Q3 incident surfaces. You never mentioned it. MuninnDB connected the concep
 
 ---
 
+## Remote Access
+
+MuninnDB binds to `127.0.0.1` by default, so nothing is reachable from another machine. The
+admin account starts with the password `password` — fine on your own laptop, fatal the moment
+the port is open to a network.
+
+**Before you expose it:** set a real admin password. The server refuses to start when it is
+bound to a non-loopback address and the admin password is still the default:
+
+```bash
+MUNINN_ADMIN_PASSWORD='a-long-passphrase' muninn start
+```
+
+**Recommended: SSH tunnel.** Keep the server on `127.0.0.1` and let SSH carry the traffic:
+
+```bash
+# run this on your laptop
+ssh -N -L 8475:127.0.0.1:8475 -L 8476:127.0.0.1:8476 user@server
+# now http://127.0.0.1:8476 (Web UI) and http://127.0.0.1:8475 (REST) work locally
+```
+
+**As a systemd user service** on the server (`~/.config/systemd/user/muninn-tunnel.service`):
+
+```ini
+[Unit]
+Description=MuninnDB SSH tunnel
+
+[Service]
+ExecStart=/usr/bin/ssh -N -L 8475:127.0.0.1:8475 -L 8476:127.0.0.1:8476 user@server
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now muninn-tunnel
+```
+
+**Docker Compose:** the shipped `docker-compose.yml` publishes the ports on `127.0.0.1` only and
+refuses to start without a password:
+
+```bash
+echo "MUNINN_ADMIN_PASSWORD=$(openssl rand -base64 24)" > .env
+docker compose up -d
+```
+
+**LAN access without a tunnel:** set `MUNINN_LISTEN_HOST=0.0.0.0` (or `--listen-host 0.0.0.0`),
+a strong `MUNINN_ADMIN_PASSWORD`, and TLS in front of it (`--tls-cert` / `--tls-key`). API keys
+alone do not protect a plain network — they travel in clear text. As soon as the server is
+reachable from other hosts, the "default" vault is created **private**: create an API key for it
+in the admin UI.
+
+---
+
 ## Connect Your AI Tools
 
 MuninnDB auto-detects and configures Claude Desktop, Cursor, OpenClaw, Windsurf, OpenCode, VS Code, and others:

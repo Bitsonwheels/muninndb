@@ -29,6 +29,10 @@ docker compose logs -f cortex lobe1 lobe2 | grep -Ei "joined|cluster"
 
 Within a few seconds each Lobe logs `cluster: joined role=lobe cortex=cortex epoch=1`.
 
+The published ports are bound to `127.0.0.1`, so the cluster is reachable from this
+machine only. Use an SSH tunnel for access from another host (see the README →
+"Remote access").
+
 ## Prove replication works
 
 Write to the **Cortex**, then read the same id back from a **Lobe**:
@@ -66,7 +70,13 @@ docker compose down -v
 - **Seeds point at the cluster port.** Lobes seed `cortex:8479`; the Cortex
   seeds the Lobes for gossip.
 - **Secrets.** `MUNINN_CLUSTER_SECRET` and `MUNINN_ADMIN_PASSWORD` here are
-  placeholders — set strong values for anything real.
+  placeholders — set strong values for anything real. The server refuses to
+  start when it is reachable from other hosts and the admin password is still
+  the default `password`.
+- **Public default vault.** `MUNINN_DEFAULT_VAULT_PUBLIC=1` keeps the example's
+  keyless write working: a server reachable from other hosts creates the
+  "default" vault private, so you would need an API key. Drop that line for a
+  real deployment.
 - **Cluster status reporting.** `GET /v1/cluster/info` currently under-reports
   topology (Cortex role and per-node lag); replication is unaffected. Tracked in
   [#516](https://github.com/scrypster/muninndb/issues/516).

@@ -66,6 +66,7 @@ Copy the output — this is your `VAULT_KEY`.
 # .env
 # Keep this file out of version control
 VAULT_KEY=your-generated-secret-here
+MUNINN_ADMIN_PASSWORD=your-generated-admin-password-here
 ```
 
 > **Note:** `${VAULT_KEY}` is resolved by Docker Compose from `.env` at `docker compose up` time. If you change `.env`, recreate the container (`docker compose up -d --force-recreate`) for the new value to take effect.
@@ -97,6 +98,12 @@ services:
       MUNINN_MEM_LIMIT_GB: "4"
       MUNINN_GC_PERCENT: "200"
       MUNINN_CORS_ORIGINS: "https://muninn.example.com"
+      # The server refuses to start when it is reachable from other hosts and
+      # the admin account still uses the default password.
+      MUNINN_ADMIN_PASSWORD: "${MUNINN_ADMIN_PASSWORD}"
+      # Traefik authenticates every request with the vault_key query parameter,
+      # so the "default" vault stays public. Drop this line to require an API key.
+      MUNINN_DEFAULT_VAULT_PUBLIC: "1"
       # No MUNINN_MCP_TOKEN set — auth is handled by Traefik routing rule
 
     healthcheck:

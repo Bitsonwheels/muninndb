@@ -15,7 +15,7 @@ func TestBootstrap_FirstRun(t *testing.T) {
 	tmpDir := t.TempDir()
 	secretPath := filepath.Join(tmpDir, "auth_secret")
 
-	secret, err := auth.Bootstrap(store, secretPath)
+	secret, err := auth.Bootstrap(store, secretPath, false)
 	if err != nil {
 		t.Fatalf("Bootstrap first run: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestBootstrap_Idempotent(t *testing.T) {
 	secretPath := filepath.Join(tmpDir, "auth_secret")
 
 	// First bootstrap — creates root/password admin.
-	if _, err := auth.Bootstrap(store, secretPath); err != nil {
+	if _, err := auth.Bootstrap(store, secretPath, false); err != nil {
 		t.Fatalf("Bootstrap first run: %v", err)
 	}
 
@@ -65,7 +65,7 @@ func TestBootstrap_Idempotent(t *testing.T) {
 	}
 
 	// Second bootstrap — should be a no-op for the admin account.
-	if _, err := auth.Bootstrap(store, secretPath); err != nil {
+	if _, err := auth.Bootstrap(store, secretPath, false); err != nil {
 		t.Fatalf("Bootstrap second run: %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestBootstrap_EnvPasswordAppliedOnExistingInstance(t *testing.T) {
 	secretPath := filepath.Join(tmpDir, "auth_secret")
 
 	// First bootstrap — creates root with default "password".
-	if _, err := auth.Bootstrap(store, secretPath); err != nil {
+	if _, err := auth.Bootstrap(store, secretPath, false); err != nil {
 		t.Fatalf("Bootstrap first run: %v", err)
 	}
 
@@ -98,7 +98,7 @@ func TestBootstrap_EnvPasswordAppliedOnExistingInstance(t *testing.T) {
 	t.Setenv("MUNINN_ADMIN_PASSWORD", "my-secure-password")
 
 	// Second bootstrap — existing instance with env var set.
-	if _, err := auth.Bootstrap(store, secretPath); err != nil {
+	if _, err := auth.Bootstrap(store, secretPath, false); err != nil {
 		t.Fatalf("Bootstrap second run: %v", err)
 	}
 
@@ -119,7 +119,7 @@ func TestBootstrap_EnvPasswordNotSetIdempotent(t *testing.T) {
 	tmpDir := t.TempDir()
 	secretPath := filepath.Join(tmpDir, "auth_secret")
 
-	if _, err := auth.Bootstrap(store, secretPath); err != nil {
+	if _, err := auth.Bootstrap(store, secretPath, false); err != nil {
 		t.Fatalf("Bootstrap first run: %v", err)
 	}
 	if err := store.ChangeAdminPassword("root", "manual-change"); err != nil {
@@ -127,7 +127,7 @@ func TestBootstrap_EnvPasswordNotSetIdempotent(t *testing.T) {
 	}
 
 	// Env var is not set — second bootstrap must not touch the password.
-	if _, err := auth.Bootstrap(store, secretPath); err != nil {
+	if _, err := auth.Bootstrap(store, secretPath, false); err != nil {
 		t.Fatalf("Bootstrap second run: %v", err)
 	}
 
@@ -149,7 +149,7 @@ func TestBootstrap_SecretFileExists(t *testing.T) {
 		t.Fatalf("write secret file: %v", err)
 	}
 
-	secret, err := auth.Bootstrap(store, secretPath)
+	secret, err := auth.Bootstrap(store, secretPath, false)
 	if err != nil {
 		t.Fatalf("Bootstrap with existing secret file: %v", err)
 	}
@@ -167,5 +167,79 @@ func TestBootstrap_SecretFileExists(t *testing.T) {
 	}
 	if string(data) != string(existingSecret) {
 		t.Errorf("expected secret file to be unchanged, got %q", string(data))
+	}
+}
+
+// TestBootstrap_ExposedRefusesDefaultPassword verifies that a server reachable
+// from other hosts does not come up with the default admin password.
+func TestBootstrap_ExposedRefusesDefaultPassword(t *testing.T) {
+	store := newTestStore(t)
+	secretPath := filepath.Join(t.TempDir(), "auth_secret")
+	t.Setenv("MUNINN_ADMIN_PASSWORD", "")
+
+	if _, err := auth.Bootstrap(store, secretPath, true); err == nil {
+		t.Fatal("expected Bootstrap to refuse an exposed server with the default password")
+	}
+	if store.AdminExists() {
+		t.Error("expected no admin account to be created when Bootstrap refuses to start")
+	}
+}
+
+// TestBootstrap_ExposedRefusesExistingDefaultPassword covers the upgrade case:
+// an instance that already runs with the default password must not start once
+// it is bound to a non-loopback address.
+func TestBootstrap_ExposedRefusesExistingDefaultPassword(t *testing.T) {
+	store := newTestStore(t)
+	secretPath := filepath.Join(t.TempDir(), "auth_secret")
+	t.Setenv("MUNINN_ADMIN_PASSWORD", "")
+
+	if _, err := auth.Bootstrap(store, secretPath, false); err != nil {
+		t.Fatalf("Bootstrap first run: %v", err)
+	}
+	if _, err := auth.Bootstrap(store, secretPath, true); err == nil {
+		t.Fatal("expected Bootstrap to refuse an exposed server that still has the default password")
+	}
+}
+
+// TestBootstrap_ExposedCreatesPrivateVault verifies that a server reachable from
+// other hosts boots with a private default vault, so no API key is handed out.
+func TestBootstrap_ExposedCreatesPrivateVault(t *testing.T) {
+	store := newTestStore(t)
+	secretPath := filepath.Join(t.TempDir(), "auth_secret")
+	t.Setenv("MUNINN_ADMIN_PASSWORD", "a-strong-password")
+	t.Setenv("MUNINN_DEFAULT_VAULT_PUBLIC", "")
+
+	if _, err := auth.Bootstrap(store, secretPath, true); err != nil {
+		t.Fatalf("Bootstrap with MUNINN_ADMIN_PASSWORD set: %v", err)
+	}
+	cfg, err := store.GetVaultConfig("default")
+	if err != nil {
+		t.Fatalf("GetVaultConfig: %v", err)
+	}
+	if cfg.Public {
+		t.Error("expected the default vault to be private on an exposed server")
+	}
+	if err := store.ValidateAdmin("root", "a-strong-password"); err != nil {
+		t.Errorf("expected the env password to be used on first run: %v", err)
+	}
+}
+
+// TestBootstrap_DefaultVaultPublicOptIn verifies the escape hatch for setups
+// where a proxy in front of muninn authenticates every request.
+func TestBootstrap_DefaultVaultPublicOptIn(t *testing.T) {
+	store := newTestStore(t)
+	secretPath := filepath.Join(t.TempDir(), "auth_secret")
+	t.Setenv("MUNINN_ADMIN_PASSWORD", "a-strong-password")
+	t.Setenv("MUNINN_DEFAULT_VAULT_PUBLIC", "1")
+
+	if _, err := auth.Bootstrap(store, secretPath, true); err != nil {
+		t.Fatalf("Bootstrap with the public-vault opt-in: %v", err)
+	}
+	cfg, err := store.GetVaultConfig("default")
+	if err != nil {
+		t.Fatalf("GetVaultConfig: %v", err)
+	}
+	if !cfg.Public {
+		t.Error("expected MUNINN_DEFAULT_VAULT_PUBLIC=1 to keep the default vault public")
 	}
 }

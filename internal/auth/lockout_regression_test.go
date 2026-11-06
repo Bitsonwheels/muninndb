@@ -58,7 +58,7 @@ func TestLockoutRegression_AllThreeBugsClosed(t *testing.T) {
 	// (2) Bootstrap creates root — must succeed because AdminExists correctly
 	// reports false. Pre-relocation, Bootstrap would skip CreateAdmin here.
 	secretPath := filepath.Join(t.TempDir(), "auth_secret")
-	if _, err := auth.Bootstrap(store, secretPath); err != nil {
+	if _, err := auth.Bootstrap(store, secretPath, false); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	if !store.AdminExists() {

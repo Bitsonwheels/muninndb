@@ -24,6 +24,9 @@ x-common: &common
     MUNINN_CLUSTER_HEARTBEAT_MS: "1000"
     MUNINN_CLUSTER_LEASE_TTL: "10"
     MUNINN_ADMIN_PASSWORD: "change-me-admin"
+    # The example writes to the public "default" vault without an API key.
+    # Drop this line for a real deployment — the vault then stays private.
+    MUNINN_DEFAULT_VAULT_PUBLIC: "1"
 
 services:
   cortex:
@@ -37,9 +40,9 @@ services:
       MUNINN_CLUSTER_BIND_ADDR: "cortex:8479"
       MUNINN_CLUSTER_SEEDS: "lobe1:8479,lobe2:8479"
     ports:
-      - "8475:8475"   # cortex REST  → http://localhost:8475
-      - "8476:8476"   # cortex Web UI → http://localhost:8476
-      - "8750:8750"   # cortex MCP/health
+      - "127.0.0.1:8475:8475"   # cortex REST  → http://localhost:8475
+      - "127.0.0.1:8476:8476"   # cortex Web UI → http://localhost:8476
+      - "127.0.0.1:8750:8750"   # cortex MCP/health
 
   lobe1:
     <<: *common
@@ -53,7 +56,7 @@ services:
       MUNINN_CLUSTER_BIND_ADDR: "lobe1:8479"
       MUNINN_CLUSTER_SEEDS: "cortex:8479"
     ports:
-      - "18475:8475"  # lobe1 REST → http://localhost:18475
+      - "127.0.0.1:18475:8475"  # lobe1 REST → http://localhost:18475
 
   lobe2:
     <<: *common
@@ -67,4 +70,4 @@ services:
       MUNINN_CLUSTER_BIND_ADDR: "lobe2:8479"
       MUNINN_CLUSTER_SEEDS: "cortex:8479"
     ports:
-      - "28475:8475"  # lobe2 REST → http://localhost:28475
+      - "127.0.0.1:28475:8475"  # lobe2 REST → http://localhost:28475

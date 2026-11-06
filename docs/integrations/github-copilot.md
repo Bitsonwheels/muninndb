@@ -65,7 +65,7 @@ If MuninnDB is running on a remote server, replace `127.0.0.1` with the server's
 }
 ```
 
-> **Tip:** Use `muninn start --listen-host 0.0.0.0` on the remote server so it accepts connections from outside localhost.
+> **Tip:** Use `muninn start --listen-host 0.0.0.0` on the remote server so it accepts connections from outside localhost. Set `MUNINN_ADMIN_PASSWORD` as well — the server refuses to start on a non-loopback address while the admin account still uses the default password. An SSH tunnel (`ssh -N -L 8750:127.0.0.1:8750 user@server`) is the safer way to reach the server.
 
 ---
 

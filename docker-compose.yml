@@ -5,14 +5,22 @@ services:
     container_name: muninndb
     restart: unless-stopped
     ports:
-      - "8474:8474"   # MBP binary protocol (Go/Python SDK)
-      - "8475:8475"   # REST API
-      - "8476:8476"   # Web UI  →  http://localhost:8476
-      - "8477:8477"   # gRPC
-      - "8750:8750"   # MCP (Claude Desktop, Cursor, VS Code)
+      # Bound to the host loopback on purpose: the ports are reachable from this
+      # machine only. For access from another host use an SSH tunnel
+      # (see README → "Remote access") instead of publishing them on the LAN.
+      - "127.0.0.1:8474:8474"   # MBP binary protocol (Go/Python SDK)
+      - "127.0.0.1:8475:8475"   # REST API
+      - "127.0.0.1:8476:8476"   # Web UI  →  http://localhost:8476
+      - "127.0.0.1:8477:8477"   # gRPC
+      - "127.0.0.1:8750:8750"   # MCP (Claude Desktop, Cursor, VS Code)
     volumes:
       - muninndb-data:/data
     environment:
+      # ── Admin password ──────────────────────────────────────────────────────
+      # Required: compose refuses to start without it. The server also refuses
+      # to start when it is reachable from other hosts and the admin account
+      # still uses the default password.
+      MUNINN_ADMIN_PASSWORD: "${MUNINN_ADMIN_PASSWORD:?set MUNINN_ADMIN_PASSWORD, e.g. in .env: MUNINN_ADMIN_PASSWORD=$(openssl rand -base64 24)}"
       # ── Embedder ──────────────────────────────────────────────────────────
       # Bundled bge-small-en-v1.5 (384-dim, English) is on by default — no config needed.
       # To switch to a cloud provider, set one of the vars below and
@@ -42,7 +50,8 @@ services:
       # ── Listen address ───────────────────────────────────────────────────────
       # Inside a container the server must bind to 0.0.0.0 (all interfaces);
       # the default 127.0.0.1 is the container loopback and unreachable from
-      # the host even when ports are mapped.
+      # the host even when ports are mapped. The host ports above stay on
+      # 127.0.0.1, so the container is only reachable from this machine.
       MUNINN_LISTEN_HOST: "0.0.0.0"
 
       # ── Memory limits ─────────────────────────────────────────────────────

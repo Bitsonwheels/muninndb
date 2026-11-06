@@ -62,10 +62,13 @@ Open the Web UI: http://127.0.0.1:8476
 ```sh
 git clone https://github.com/scrypster/muninndb
 cd muninndb
+echo "MUNINN_ADMIN_PASSWORD=$(openssl rand -base64 24)" > .env
 docker compose up -d
 ```
 
-Edit `docker-compose.yml` to configure your embedder (see [Embedder Configuration](#embedder-configuration) below).
+The compose file publishes the ports on `127.0.0.1` only and refuses to start
+without `MUNINN_ADMIN_PASSWORD` in `.env`. Edit `docker-compose.yml` to configure
+your embedder (see [Embedder Configuration](#embedder-configuration) below).
 
 ### Build from source
 
@@ -73,9 +76,18 @@ Edit `docker-compose.yml` to configure your embedder (see [Embedder Configuratio
 git clone https://github.com/scrypster/muninndb
 cd muninndb
 docker build -t muninndb:local .
-docker run -d --name muninndb -p 8474-8477:8474-8477 -p 8750:8750 \
+docker run -d --name muninndb \
+  -p 127.0.0.1:8474-8477:8474-8477 -p 127.0.0.1:8750:8750 \
+  -e MUNINN_LISTEN_HOST=0.0.0.0 \
+  -e MUNINN_ADMIN_PASSWORD='a-long-passphrase' \
   -v muninndb-data:/data muninndb:local
 ```
+
+`MUNINN_LISTEN_HOST=0.0.0.0` is required inside a container (the server would
+otherwise bind the container's own loopback and stay unreachable from the
+host). `MUNINN_ADMIN_PASSWORD` is required too: the server refuses to start
+when it is reachable from other hosts and the admin account still uses the
+default password.
 
 ---
 

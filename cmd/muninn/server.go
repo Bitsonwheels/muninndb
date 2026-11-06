@@ -922,11 +922,20 @@ func isLoopbackHost(host string) bool {
 	return false
 }
 
-// shouldWarnDefaultPasswordExposure reports whether the server is reachable
-// off-host while the admin still has the default password — the combination
-// that warrants a prominent security warning at startup.
-func shouldWarnDefaultPasswordExposure(listenHost string, defaultPasswordInUse bool) bool {
-	return defaultPasswordInUse && !isLoopbackHost(listenHost)
+// anyNonLoopbackAddr reports whether any of the given "host:port" addresses
+// binds to a non-loopback host, i.e. the server is reachable from other hosts.
+// An empty host means Go binds all interfaces, which counts as exposed.
+func anyNonLoopbackAddr(addrs ...string) bool {
+	for _, addr := range addrs {
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			continue
+		}
+		if !isLoopbackHost(host) {
+			return true
+		}
+	}
+	return false
 }
 
 func runServer() {
@@ -1266,28 +1275,13 @@ func runServer() {
 
 	authStore := auth.NewStore(db)
 	secretPath := filepath.Join(*dataDir, "auth_secret")
-	sessionSecret, err := auth.Bootstrap(authStore, secretPath)
+	// A server reachable from other hosts must not run with the default admin
+	// password and must not hand out a public vault. Bootstrap refuses to start
+	// in that state instead of only warning about it.
+	sessionSecret, err := auth.Bootstrap(authStore, secretPath, anyNonLoopbackAddr(addrsToValidate...))
 	if err != nil {
 		slog.Error("auth bootstrap failed", "err", err)
 		os.Exit(1)
-	}
-
-	// Loud warning when the server is reachable off-host while the admin still
-	// has the default password — an open-server posture. We warn rather than
-	// refuse so the zero-config quickstart and the shipped docker-compose keep
-	// working; the message tells the operator exactly how to close the gap.
-	if shouldWarnDefaultPasswordExposure(listenHost, authStore.ValidateAdmin("root", "password") == nil) {
-		slog.Warn("SECURITY: bound to a non-loopback address with the default admin password still set",
-			"listen_host", listenHost)
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "  ⚠  SECURITY WARNING")
-		fmt.Fprintf(os.Stderr, "     muninn is listening on %s (reachable from other hosts) while the\n", listenHost)
-		fmt.Fprintln(os.Stderr, "     admin account still uses the default password 'password'.")
-		fmt.Fprintln(os.Stderr, "     Anyone who can reach this host can take over the server.")
-		fmt.Fprintln(os.Stderr, "     Fix now: log in to the Web UI and change the password, or set")
-		fmt.Fprintln(os.Stderr, "     MUNINN_ADMIN_PASSWORD before starting. Bind to 127.0.0.1 if you")
-		fmt.Fprintln(os.Stderr, "     only need local access.")
-		fmt.Fprintln(os.Stderr, "")
 	}
 
 	// Open MOL (Write-Ahead Log)
