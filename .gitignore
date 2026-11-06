@@ -117,3 +117,7 @@ sdk/php/vendor/
 # scratch browser-automation / screenshot output (workspace convention keeps these
 # at the workspace root; this is a backstop in case a tool writes into the repo)
 .artifacts/
+
+# Local agent planning state (task_plan.md / findings.md / progress.md per task).
+# Same tier as docs/plans/ above: half-formed plans stay local, `git add -f` if one lands.
+.planning/
