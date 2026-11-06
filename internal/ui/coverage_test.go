@@ -183,12 +183,9 @@ func TestHandleLogs_NilRingBuffer(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	body := strings.TrimSpace(w.Body.String())
-	if body != "[]" {
-		t.Errorf("expected empty array [], got %q", body)
+	// Without an auth store the log surface is closed (fail closed).
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without an auth store, got %d", w.Code)
 	}
 }
 
@@ -204,14 +201,8 @@ func TestHandleLogs_EmptyRingBuffer(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-
-	var result []map[string]any
-	json.NewDecoder(w.Body).Decode(&result)
-	if len(result) != 0 {
-		t.Errorf("expected empty array, got %d items", len(result))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without an auth store, got %d", w.Code)
 	}
 }
 
@@ -228,13 +219,9 @@ func TestAuthCheck_NoAuth(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	var resp map[string]bool
-	json.NewDecoder(w.Body).Decode(&resp)
-	if !resp["ok"] {
-		t.Error("expected ok=true")
+	// Without an auth store the auth-check surface is closed (fail closed).
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without an auth store, got %d", w.Code)
 	}
 }
 

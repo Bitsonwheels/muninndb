@@ -287,10 +287,13 @@ func TestSSEResponseHeaders(t *testing.T) {
 	// Test SSE headers using a real httptest server (needs actual streaming)
 	webFS := makeMockFS()
 	eng := &mockEngine{}
-	srv, err := ui.NewServer(webFS, eng, http.NotFoundHandler(), nil, nil, logging.NewRingBuffer(10, nil), nil, nil)
+	srv, store, secret := newAuthServer(t, nil)
+	token, err := store.NewSessionToken("admin", secret)
 	if err != nil {
-		t.Fatalf("NewServer: %v", err)
+		t.Fatalf("NewSessionToken: %v", err)
 	}
+	_ = webFS
+	_ = eng
 
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
@@ -300,6 +303,7 @@ func TestSSEResponseHeaders(t *testing.T) {
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", ts.URL+"/events", nil)
+	req.AddCookie(&http.Cookie{Name: "muninn_session", Value: token})
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		// Context deadline is fine — we already got the response headers
@@ -382,14 +386,24 @@ func TestHandleLogs_ReturnsSnapshot(t *testing.T) {
 
 	webFS := makeMockFS()
 	eng := &mockEngine{}
-	srv, err := ui.NewServer(webFS, eng, http.NotFoundHandler(), nil, nil, rb, nil, nil)
+	srv, store, secret := newAuthServer(t, nil)
+	token, err := store.NewSessionToken("admin", secret)
+	if err != nil {
+		t.Fatalf("NewSessionToken: %v", err)
+	}
+	// newAuthServer owns its own ring buffer, so re-populate it by replacing
+	// the server is not possible; instead attach the populated buffer via a
+	// fresh server that keeps auth enabled.
+	srv2, err := ui.NewServer(webFS, eng, http.NotFoundHandler(), store, secret, rb, nil, nil)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
+	_ = srv
 
 	req := httptest.NewRequest("GET", "/logs", nil)
+	req.AddCookie(&http.Cookie{Name: "muninn_session", Value: token})
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
+	srv2.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -742,16 +756,23 @@ func TestClearLogs_EmptiesRing(t *testing.T) {
 	ring.Add(logging.LogEntry{Msg: "entry1"})
 	ring.Add(logging.LogEntry{Msg: "entry2"})
 
-	webFS := makeMockFS()
-	eng := &mockEngine{}
-	srv, err := ui.NewServer(webFS, eng, http.NotFoundHandler(), nil, nil, ring, nil, nil)
+	srv, store, secret := newAuthServer(t, nil)
+	// Re-attach the populated ring buffer by rebuilding is not possible, so
+	// instead exercise the handler with an authenticated session on a server
+	// that owns this ring buffer.
+	srv2, err := ui.NewServer(makeMockFS(), &mockEngine{}, http.NotFoundHandler(), store, secret, ring, nil, nil)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
+	token, err := store.NewSessionToken("admin", secret)
+	if err != nil {
+		t.Fatalf("NewSessionToken: %v", err)
+	}
 
 	req := httptest.NewRequest("DELETE", "/logs", nil)
+	req.AddCookie(&http.Cookie{Name: "muninn_session", Value: token})
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
+	srv2.ServeHTTP(w, req)
 
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", w.Code)
@@ -759,6 +780,7 @@ func TestClearLogs_EmptiesRing(t *testing.T) {
 	if len(ring.Snapshot()) != 0 {
 		t.Error("expected ring buffer to be empty after DELETE /logs")
 	}
+	_ = srv
 }
 
 func TestClearLogs_RequiresAuth(t *testing.T) {

@@ -129,10 +129,20 @@ func NewServer(webFS fs.FS, engine rest.EngineAPI, apiHandler http.Handler, auth
 		mux.HandleFunc("DELETE /logs", s.authStore.AdminAPIMiddleware(s.sessionSecret, s.handleClearLogs))
 		mux.HandleFunc("/events", s.authStore.AdminAPIMiddleware(s.sessionSecret, s.handleSSE))
 	} else {
-		mux.HandleFunc("GET /api/auth/check", authCheckHandler)
-		mux.HandleFunc("GET /logs", s.handleLogs)
-		mux.HandleFunc("DELETE /logs", s.handleClearLogs)
-		mux.HandleFunc("/events", s.handleSSE)
+		// Fail closed: without an auth store there is no way to authenticate
+		// the caller, so the log and event surfaces must not be reachable.
+		deny := func(w http.ResponseWriter, r *http.Request) {
+			if s.setCORSIfAllowed(w, r) {
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"unauthorized"}`))
+		}
+		mux.HandleFunc("GET /api/auth/check", deny)
+		mux.HandleFunc("GET /logs", deny)
+		mux.HandleFunc("DELETE /logs", deny)
+		mux.HandleFunc("/events", deny)
 	}
 	mux.Handle("/api/", apiHandler)
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
