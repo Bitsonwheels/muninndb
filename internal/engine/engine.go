@@ -2570,7 +2570,7 @@ func (e *Engine) WriteBatch(ctx context.Context, reqs []*mbp.WriteRequest) ([]*m
 				Content:   p.eng.Content,
 				Tags:      p.eng.Tags,
 			}) {
-				slog.Warn("engine: FTS index job dropped in batch write", "id", id.String())
+				slog.Warn("engine: FTS index job not queued in batch write (worker stopped)", "id", id.String())
 			}
 		}
 

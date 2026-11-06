@@ -14,6 +14,10 @@ const (
 	workerBufSize   = 32768 // was 4096 — large enough to absorb burst at 56k writes/sec
 	workerBatchSize = 64    // was 32
 	workerInterval  = 100 * time.Millisecond
+	// submitWait is how long Submit waits for room in the queue before it
+	// indexes the job itself. One flush cycle is enough for the pool to make
+	// room in the common burst case.
+	submitWait = workerInterval
 )
 
 // IndexJob is a pending FTS indexing task queued from a write.
@@ -34,8 +38,13 @@ type indexer interface {
 
 // Worker processes FTS indexing jobs asynchronously off the write hot path.
 // Jobs are distributed across NumCPU goroutines reading from a shared buffered channel.
-// If the queue is full, the job is dropped and a warning is logged — the engram is
-// already durably stored in Pebble; only keyword search visibility is delayed.
+//
+// A job is never dropped because of queue pressure: if the queue is full,
+// Submit waits one flush cycle for room and then indexes the job in the
+// calling goroutine. The engram is already durable in Pebble at that point,
+// so dropping the job would leave it invisible to keyword search until
+// someone ran a manual reindex.
+//
 // Stale FTS entries for deleted engrams are harmless: Phase 6 of activation filters
 // nil metadata results, so orphaned posting list entries never surface in results.
 type Worker struct {
@@ -47,7 +56,6 @@ type Worker struct {
 	// discarded, because a goroutine that is already awake will flush anyway.
 	flushNow chan struct{}
 	stopped  atomic.Bool
-	dropped  atomic.Int64
 	// pending counts jobs accepted by Submit but not yet handed to the indexer.
 	// Flush waits for it to reach zero.
 	pending        atomic.Int64
@@ -127,8 +135,15 @@ func (w *Worker) runLoop() {
 	}
 }
 
-// Submit enqueues an FTS index job. Non-blocking — drops and warns if queue is full.
-// Returns true if the job was accepted, false if dropped (including after Stop).
+// Submit enqueues an FTS index job.
+//
+// The queue is the fast path. If it is full, Submit waits one flush cycle for
+// room and then indexes the job in the calling goroutine — a job that was
+// dropped instead would leave the engram durable but invisible to keyword
+// search (audit finding 6). The write path slows down under queue pressure;
+// it does not lose search visibility.
+//
+// Returns false only when the worker is stopped (shutdown).
 func (w *Worker) Submit(job IndexJob) bool {
 	if w.stopped.Load() {
 		return false
@@ -138,11 +153,42 @@ func (w *Worker) Submit(job IndexJob) bool {
 		w.pending.Add(1)
 		return true
 	default:
-		n := w.dropped.Add(1)
-		if n&(n-1) == 0 {
-			slog.Warn("fts: worker queue full, index jobs dropped", "total_dropped", n)
+	}
+	// Queue full: give the pool a flush cycle to make room before falling
+	// back to indexing the job here.
+	timer := time.NewTimer(submitWait)
+	defer timer.Stop()
+	select {
+	case w.input <- job:
+		w.pending.Add(1)
+		return true
+	case <-timer.C:
+		w.indexInline(job)
+		return true
+	}
+}
+
+// indexInline indexes a job in the calling goroutine. Used when the queue is
+// full: the writer waits for the index instead of losing search visibility.
+func (w *Worker) indexInline(job IndexJob) {
+	// The FTS database may be closed while the engine shuts down; a write to a
+	// closed Pebble database panics. Losing the job during shutdown is fine,
+	// crashing the writer is not.
+	defer func() {
+		if r := recover(); r != nil && !ftsIsClosedPanic(r) {
+			slog.Error("fts: inline index panicked", "panic", r)
 		}
-		return false
+	}()
+	// A vault being cleared is re-indexed by the reindex itself; adding
+	// postings here would race with that clear.
+	if _, clearing := w.clearingVaults.Load(job.WS); clearing {
+		return
+	}
+	if err := w.idx.IndexEngram(job.WS, job.ID, job.Concept, job.CreatedBy, job.Content, job.Tags); err != nil {
+		slog.Warn("fts: inline index failed",
+			"engram_id", job.ID,
+			"err", err,
+		)
 	}
 }
 
@@ -154,11 +200,6 @@ func (w *Worker) Stop() {
 	close(w.done)
 }
 
-// Dropped returns the cumulative number of jobs dropped due to queue pressure.
-func (w *Worker) Dropped() int64 {
-	return w.dropped.Load()
-}
-
 // Flush blocks until every job accepted by Submit before this call has been
 // handed to the indexer, or until timeout elapses. It does not stop the worker.
 //
@@ -167,9 +208,9 @@ func (w *Worker) Dropped() int64 {
 // not report success while writes are still unsearchable. It is not needed on
 // the normal write path, which is deliberately decoupled from indexing.
 //
-// Jobs rejected by Submit (queue full, or worker stopped) were never counted,
-// so Flush makes no promise about them; check the Submit return value or
-// Dropped() for that.
+// A job that Submit indexed inline is already searchable when Submit returns,
+// so Flush makes no promise about it. Jobs rejected by Submit (worker stopped)
+// were never counted either; check the Submit return value for those.
 func (w *Worker) Flush(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
