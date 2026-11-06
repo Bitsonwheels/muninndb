@@ -296,7 +296,7 @@ func TestCopyFile_Roundtrip(t *testing.T) {
 		t.Fatalf("write src: %v", err)
 	}
 
-	if err := copyFile(src, dst); err != nil {
+	if err := CopyFile(src, dst); err != nil {
 		t.Fatalf("copyFile: %v", err)
 	}
 
@@ -322,7 +322,7 @@ func TestCopyFile_SrcMissing(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "nonexistent.txt")
 	dst := filepath.Join(t.TempDir(), "dest.txt")
 
-	if err := copyFile(src, dst); err == nil {
+	if err := CopyFile(src, dst); err == nil {
 		t.Error("expected error when source file is missing, got nil")
 	}
 }
@@ -349,7 +349,7 @@ func TestCopyDir_Roundtrip(t *testing.T) {
 		}
 	}
 
-	if err := copyDir(srcDir, dstDir); err != nil {
+	if err := CopyDir(srcDir, dstDir); err != nil {
 		t.Fatalf("copyDir: %v", err)
 	}
 
@@ -387,7 +387,7 @@ func TestDirSize(t *testing.T) {
 		expectedTotal += int64(len(content))
 	}
 
-	got := dirSize(dir)
+	got := DirSize(dir)
 	if got != expectedTotal {
 		t.Errorf("dirSize: got %d, want %d", got, expectedTotal)
 	}
@@ -396,7 +396,7 @@ func TestDirSize(t *testing.T) {
 // TestDirSize_EmptyDir verifies that dirSize returns 0 for an empty directory.
 func TestDirSize_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	if got := dirSize(dir); got != 0 {
+	if got := DirSize(dir); got != 0 {
 		t.Errorf("expected 0 for empty dir, got %d", got)
 	}
 }

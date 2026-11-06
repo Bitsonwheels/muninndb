@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/scrypster/muninndb/internal/backup"
 )
 
 // --- printHelp ---
@@ -408,7 +410,7 @@ func TestRunBackup_NonexistentDataDir(t *testing.T) {
 
 func TestDirSizeBytes_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	size := dirSizeBytes(dir)
+	size := backup.DirSize(dir)
 	if size != 0 {
 		t.Errorf("expected 0 for empty dir, got %d", size)
 	}
@@ -417,7 +419,7 @@ func TestDirSizeBytes_EmptyDir(t *testing.T) {
 // --- copyFile ---
 
 func TestCopyFile_NonexistentSource(t *testing.T) {
-	err := copyFile("/nonexistent/source", t.TempDir()+"/dst")
+	err := backup.CopyFile("/nonexistent/source", t.TempDir()+"/dst")
 	if err == nil {
 		t.Fatal("expected error for nonexistent source")
 	}
@@ -826,7 +828,7 @@ func TestCopyDir_Success(t *testing.T) {
 	os.WriteFile(src+"/file1.txt", []byte("hello"), 0644)
 	os.WriteFile(src+"/sub/file2.txt", []byte("world"), 0644)
 
-	if err := copyDir(src, dst); err != nil {
+	if err := backup.CopyDir(src, dst); err != nil {
 		t.Fatalf("copyDir: %v", err)
 	}
 
@@ -855,7 +857,7 @@ func TestCopyFile_Success(t *testing.T) {
 
 	os.WriteFile(src, []byte("content"), 0644)
 
-	if err := copyFile(src, dst); err != nil {
+	if err := backup.CopyFile(src, dst); err != nil {
 		t.Fatalf("copyFile: %v", err)
 	}
 
@@ -875,7 +877,7 @@ func TestDirSizeBytes_WithFiles(t *testing.T) {
 	os.WriteFile(dir+"/a.txt", []byte("hello"), 0644)
 	os.WriteFile(dir+"/b.txt", []byte("world!"), 0644)
 
-	size := dirSizeBytes(dir)
+	size := backup.DirSize(dir)
 	if size != 11 {
 		t.Errorf("expected 11 bytes, got %d", size)
 	}

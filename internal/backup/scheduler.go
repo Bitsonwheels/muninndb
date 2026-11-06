@@ -152,7 +152,7 @@ func (s *Scheduler) runOnce() {
 		walSrc := filepath.Join(s.cfg.DataDir, "wal")
 		walDst := filepath.Join(destDir, "wal")
 		if info, err := os.Stat(walSrc); err == nil && info.IsDir() {
-			if err := copyDir(walSrc, walDst); err != nil {
+			if err := CopyDir(walSrc, walDst); err != nil {
 				slog.Warn("backup: failed to copy wal directory", "err", err)
 				copyErrs = append(copyErrs, fmt.Errorf("copy wal: %w", err))
 			}
@@ -161,7 +161,7 @@ func (s *Scheduler) runOnce() {
 		secretSrc := filepath.Join(s.cfg.DataDir, "auth_secret")
 		secretDst := filepath.Join(destDir, "auth_secret")
 		if _, err := os.Stat(secretSrc); err == nil {
-			if err := copyFile(secretSrc, secretDst); err != nil {
+			if err := CopyFile(secretSrc, secretDst); err != nil {
 				slog.Warn("backup: failed to copy auth_secret", "err", err)
 				copyErrs = append(copyErrs, fmt.Errorf("copy auth_secret: %w", err))
 			}
@@ -169,7 +169,7 @@ func (s *Scheduler) runOnce() {
 	}
 
 	elapsed := time.Since(start)
-	size := dirSize(destDir)
+	size := DirSize(destDir)
 
 	pruned := s.pruneOldBackups()
 
@@ -247,8 +247,8 @@ func (s *Scheduler) pruneOldBackups() int {
 	return pruned
 }
 
-// copyFile copies a single file preserving its permissions.
-func copyFile(src, dst string) error {
+// CopyFile copies a single file preserving its permissions.
+func CopyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -270,8 +270,8 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-// copyDir recursively copies a directory tree from src to dst.
-func copyDir(src, dst string) error {
+// CopyDir recursively copies a directory tree from src to dst.
+func CopyDir(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -284,12 +284,12 @@ func copyDir(src, dst string) error {
 		if d.IsDir() {
 			return os.MkdirAll(target, 0700)
 		}
-		return copyFile(path, target)
+		return CopyFile(path, target)
 	})
 }
 
-// dirSize returns the total byte size of all files under dir.
-func dirSize(dir string) int64 {
+// DirSize returns the total byte size of all files under dir.
+func DirSize(dir string) int64 {
 	var total int64
 	filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {

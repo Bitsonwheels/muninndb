@@ -3,14 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/scrypster/muninndb/internal/backup"
 	"github.com/scrypster/muninndb/internal/storage"
 )
 
@@ -136,7 +135,7 @@ func runBackup(args []string) {
 	walSrc := filepath.Join(dataDir, "wal")
 	walDst := filepath.Join(outputDir, "wal")
 	if info, err := os.Stat(walSrc); err == nil && info.IsDir() {
-		if err := copyDir(walSrc, walDst); err != nil {
+		if err := backup.CopyDir(walSrc, walDst); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to copy wal directory: %v\n", err)
 			copyErrs = append(copyErrs, fmt.Errorf("copy wal: %w", err))
 		} else {
@@ -148,7 +147,7 @@ func runBackup(args []string) {
 	secretSrc := filepath.Join(dataDir, "auth_secret")
 	secretDst := filepath.Join(outputDir, "auth_secret")
 	if _, err := os.Stat(secretSrc); err == nil {
-		if err := copyFile(secretSrc, secretDst); err != nil {
+		if err := backup.CopyFile(secretSrc, secretDst); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to copy auth_secret: %v\n", err)
 			copyErrs = append(copyErrs, fmt.Errorf("copy auth_secret: %w", err))
 		} else {
@@ -157,7 +156,7 @@ func runBackup(args []string) {
 	}
 
 	elapsed := time.Since(start)
-	size := dirSizeBytes(outputDir)
+	size := backup.DirSize(outputDir)
 	if len(copyErrs) > 0 {
 		fmt.Fprintf(os.Stderr, "error: backup incomplete: %v\n", errors.Join(copyErrs...))
 		fmt.Printf("Backup incomplete: %s (%s, %s)\n", outputDir, formatBytes(size), elapsed.Round(time.Millisecond))
@@ -165,66 +164,6 @@ func runBackup(args []string) {
 		return
 	}
 	fmt.Printf("Backup complete: %s (%s, %s)\n", outputDir, formatBytes(size), elapsed.Round(time.Millisecond))
-}
-
-// copyFile copies a single file, preserving permissions.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	info, err := in.Stat()
-	if err != nil {
-		return err
-	}
-
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
-}
-
-// copyDir recursively copies a directory tree.
-func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-
-		if d.IsDir() {
-			return os.MkdirAll(target, 0700)
-		}
-		return copyFile(path, target)
-	})
-}
-
-// dirSizeBytes walks a directory tree and sums file sizes.
-func dirSizeBytes(dir string) int64 {
-	var total int64
-	filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		total += info.Size()
-		return nil
-	})
-	return total
 }
 
 // verifyCheckpoint opens a Pebble checkpoint in read-only mode and scans a
