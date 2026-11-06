@@ -37,6 +37,11 @@ jobs:
       - name: Install script checks
         run: sh scripts/test-install.sh
 
+      # The asset checksum verifier must accept a matching hash and refuse a
+      # wrong one. No network, no build.
+      - name: Asset checksum checks
+        run: sh scripts/test-verify-sha256.sh
+
       # Cache the binary assets (ORT library + ONNX model).
       # These are ~130MB total and don't change between commits unless the
       # ORT version or model changes. The cache key includes both versions.

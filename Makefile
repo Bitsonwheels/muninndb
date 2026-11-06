@@ -6,6 +6,18 @@ MODEL_REPO  := Xenova/bge-small-en-v1.5
 HF_BASE     := https://huggingface.co/$(MODEL_REPO)/resolve/main
 ORT_BASE    := https://github.com/microsoft/onnxruntime/releases/download/v$(ORT_VERSION)
 
+# SHA-256 of every downloaded asset. A download that does not match is a
+# different file than the one that was checked - the build stops instead of
+# using it. The ORT hashes are the digests published with the GitHub
+# releases, the model hash is the LFS id of the HuggingFace file.
+MODEL_SHA256       := bf64d05457cb391fa88d045faf5927a15ea36d96228ddf23ea970087afdc1197
+TOKENIZER_SHA256   := d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66
+ORT_SHA256_DARWIN_ARM64   := 0af4fa503e8ea285245b47ee42d0a7461b8156a81270857da0c1d4ecf858abde
+ORT_SHA256_DARWIN_AMD64   := d10359e16347b57d9959f7e80a225a5b4a66ed7d7e007274a15cae86836485a6
+ORT_SHA256_LINUX_AMD64    := 43725474ba5663642e17684717946693850e2005efbd724ac72da278fead25e6
+ORT_SHA256_LINUX_ARM64    := 6715b3d19965a2a6981e78ed4ba24f17a8c30d2d26420dbed10aac7ceca0085e
+ORT_SHA256_WINDOWS_AMD64  := 8e3e9c826375352e29cb2614fe44f3d7a4b0ff7b8028ad7a456af9d949a7e8b0
+
 .PHONY: fetch-assets fetch-model fetch-ort-libs clean-assets web css build test bench test-integration \
         corpora check-filenames check-nul-bytes \
         _ort-darwin-arm64 _ort-darwin-amd64 _ort-linux-amd64 _ort-linux-arm64 _ort-windows-amd64
@@ -20,10 +32,12 @@ fetch-model:
 	@curl -fL --progress-bar \
 		"$(HF_BASE)/onnx/model_int8.onnx" \
 		-o "$(ASSETS_DIR)/model_int8.onnx"
+	@sh scripts/verify-sha256.sh "$(ASSETS_DIR)/model_int8.onnx" "$(MODEL_SHA256)"
 	@echo "==> Downloading tokenizer.json..."
 	@curl -fL --progress-bar \
 		"https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json" \
 		-o "$(ASSETS_DIR)/tokenizer.json"
+	@sh scripts/verify-sha256.sh "$(ASSETS_DIR)/tokenizer.json" "$(TOKENIZER_SHA256)"
 	@echo "    model_int8.onnx: $$(du -sh $(ASSETS_DIR)/model_int8.onnx | cut -f1)"
 	@echo "    tokenizer.json:  $$(du -sh $(ASSETS_DIR)/tokenizer.json  | cut -f1)"
 	@echo "==> Model assets ready."
@@ -44,6 +58,7 @@ _ort-darwin-arm64:
 	@curl -fL --progress-bar \
 		"$(ORT_BASE)/onnxruntime-osx-arm64-$(ORT_VERSION).tgz" \
 		-o "/tmp/ort-osx-arm64.tgz"
+	@sh scripts/verify-sha256.sh "/tmp/ort-osx-arm64.tgz" "$(ORT_SHA256_DARWIN_ARM64)"
 	@tar -xzf /tmp/ort-osx-arm64.tgz -C /tmp onnxruntime-osx-arm64-$(ORT_VERSION)/lib/libonnxruntime.dylib 2>/dev/null || \
 		tar -xzf /tmp/ort-osx-arm64.tgz -C /tmp --strip-components=2 --wildcards '*/lib/libonnxruntime.dylib'
 	@cp /tmp/onnxruntime-osx-arm64-$(ORT_VERSION)/lib/libonnxruntime.dylib $(ASSETS_DIR)/libonnxruntime_darwin_arm64.dylib 2>/dev/null || \
@@ -55,6 +70,7 @@ _ort-darwin-amd64:
 	@curl -fL --progress-bar \
 		"https://github.com/microsoft/onnxruntime/releases/download/v$(ORT_VERSION_DARWIN_AMD64)/onnxruntime-osx-x86_64-$(ORT_VERSION_DARWIN_AMD64).tgz" \
 		-o "/tmp/ort-osx-amd64.tgz"
+	@sh scripts/verify-sha256.sh "/tmp/ort-osx-amd64.tgz" "$(ORT_SHA256_DARWIN_AMD64)"
 	@rm -rf /tmp/ort-osx-amd64-extract && mkdir -p /tmp/ort-osx-amd64-extract
 	@tar -xzf /tmp/ort-osx-amd64.tgz -C /tmp/ort-osx-amd64-extract/
 	@find /tmp/ort-osx-amd64-extract/ -name 'libonnxruntime*.dylib' | head -1 | xargs -I{} cp {} $(ASSETS_DIR)/libonnxruntime_darwin_amd64.dylib
@@ -65,6 +81,7 @@ _ort-linux-amd64:
 	@curl -fL --progress-bar \
 		"$(ORT_BASE)/onnxruntime-linux-x64-$(ORT_VERSION).tgz" \
 		-o "/tmp/ort-linux-amd64.tgz"
+	@sh scripts/verify-sha256.sh "/tmp/ort-linux-amd64.tgz" "$(ORT_SHA256_LINUX_AMD64)"
 	@tar -xzf /tmp/ort-linux-amd64.tgz -C /tmp onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so.$(ORT_VERSION) 2>/dev/null || \
 		tar -xzf /tmp/ort-linux-amd64.tgz -C /tmp --strip-components=2 --wildcards '*/lib/libonnxruntime.so.*'
 	@cp /tmp/onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so.$(ORT_VERSION) $(ASSETS_DIR)/libonnxruntime_linux_amd64.so 2>/dev/null || \
@@ -76,6 +93,7 @@ _ort-linux-arm64:
 	@curl -fL --progress-bar \
 		"$(ORT_BASE)/onnxruntime-linux-aarch64-$(ORT_VERSION).tgz" \
 		-o "/tmp/ort-linux-arm64.tgz"
+	@sh scripts/verify-sha256.sh "/tmp/ort-linux-arm64.tgz" "$(ORT_SHA256_LINUX_ARM64)"
 	@tar -xzf /tmp/ort-linux-arm64.tgz -C /tmp onnxruntime-linux-aarch64-$(ORT_VERSION)/lib/libonnxruntime.so.$(ORT_VERSION) 2>/dev/null || \
 		tar -xzf /tmp/ort-linux-arm64.tgz -C /tmp --strip-components=2 --wildcards '*/lib/libonnxruntime.so.*'
 	@cp /tmp/onnxruntime-linux-aarch64-$(ORT_VERSION)/lib/libonnxruntime.so.$(ORT_VERSION) $(ASSETS_DIR)/libonnxruntime_linux_arm64.so 2>/dev/null || \
@@ -87,6 +105,7 @@ _ort-windows-amd64:
 	@curl -fL --progress-bar \
 		"$(ORT_BASE)/onnxruntime-win-x64-$(ORT_VERSION).zip" \
 		-o "/tmp/ort-win-x64.zip"
+	@sh scripts/verify-sha256.sh "/tmp/ort-win-x64.zip" "$(ORT_SHA256_WINDOWS_AMD64)"
 	@rm -rf /tmp/ort-win-x64-extract && mkdir -p /tmp/ort-win-x64-extract
 	@unzip -q /tmp/ort-win-x64.zip -d /tmp/ort-win-x64-extract
 	@find /tmp/ort-win-x64-extract -name 'onnxruntime.dll' | head -1 | xargs -I{} cp {} $(ASSETS_DIR)/onnxruntime_windows_amd64.dll
