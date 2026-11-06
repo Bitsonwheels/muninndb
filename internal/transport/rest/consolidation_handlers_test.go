@@ -10,6 +10,7 @@ import (
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/vfs"
+	"github.com/scrypster/muninndb/internal/auth"
 	"github.com/scrypster/muninndb/internal/storage"
 )
 
@@ -78,6 +79,7 @@ func TestHandleConsolidate_Success(t *testing.T) {
 	eng := newConsolidationTestEngine(t)
 	srv := NewServer("localhost:0", eng, nil, nil, nil, EmbedInfo{}, EnrichInfo{}, nil, "", nil)
 
+
 	handler := srv.handleConsolidate()
 
 	req := httptest.NewRequest("POST", "/v1/vaults/default/consolidate", strings.NewReader(`{}`))
@@ -119,17 +121,17 @@ func TestHandleConsolidate_UnknownVault(t *testing.T) {
 
 	handler := srv.handleConsolidate()
 
-	req := httptest.NewRequest("POST", "/v1/vaults/nonexistent/consolidate", strings.NewReader(`{}`))
-	req.SetPathValue("vault", "nonexistent")
+	req := httptest.NewRequest("POST", "/v1/vaults/default/consolidate", strings.NewReader(`{}`))
+	req.SetPathValue("vault", "default")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	handler(w, req)
 
-	// The consolidation worker does not error on unknown vaults; it runs a
-	// best-effort empty pass and returns a zero-count report with HTTP 200.
+	// The consolidation worker does not error on an empty vault; it runs a
+	// best-effort pass and returns a zero-count report with HTTP 200.
 	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for unknown vault (worker is best-effort), got %d: %s", w.Code, w.Body.String())
+		t.Errorf("expected 200 for an empty vault (worker is best-effort), got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -149,5 +151,47 @@ func TestHandleConsolidate_InvalidJSON(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid JSON body, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleConsolidate_VaultMismatch expects HTTP 400 when the path vault does not
+// match the authenticated request vault (defense in depth on top of the auth middleware).
+func TestHandleConsolidate_VaultMismatch(t *testing.T) {
+	eng := newConsolidationTestEngine(t)
+	srv := NewServer("localhost:0", eng, nil, nil, nil, EmbedInfo{}, EnrichInfo{}, nil, "", nil)
+
+	handler := srv.handleConsolidate()
+
+	req := httptest.NewRequest("POST", "/v1/vaults/other/consolidate", strings.NewReader(`{}`))
+	req.SetPathValue("vault", "other")
+	req.Header.Set("Content-Type", "application/json")
+	// Simulate an authenticated request for the "default" vault.
+	req = req.WithContext(context.WithValue(req.Context(), auth.ContextVault, "default"))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for a vault mismatch, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleConsolidate_NotAvailable expects HTTP 500 when the engine does not
+// implement consolidation.EngineInterface, instead of panicking.
+func TestHandleConsolidate_NotAvailable(t *testing.T) {
+	eng := &MockEngine{}
+	srv := NewServer("localhost:0", eng, nil, nil, nil, EmbedInfo{}, EnrichInfo{}, nil, "", nil)
+
+	handler := srv.handleConsolidate()
+
+	req := httptest.NewRequest("POST", "/v1/vaults/default/consolidate", strings.NewReader(`{}`))
+	req.SetPathValue("vault", "default")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when consolidation is unavailable, got %d: %s", w.Code, w.Body.String())
 	}
 }

@@ -197,6 +197,10 @@ func NewServer(addr string, engine EngineAPI, authStore *auth.Store, sessionSecr
 	mux.HandleFunc("GET /v1/cluster/nodes", s.withClusterAuthMiddleware(s.withPublicMiddleware(s.handleClusterNodes)))
 	mux.HandleFunc("GET /v1/cluster/cognitive/consistency", s.withClusterAuthMiddleware(s.withPublicMiddleware(s.handleCognitiveConsistency)))
 
+	// Consolidation — the 5-phase worker (dedup, schema, decay, transitive inference).
+	// Registered here (audit #17); previously the handler existed but was unreachable.
+	mux.HandleFunc("POST /v1/vaults/{vault}/consolidate", s.withMiddleware(auth.ReadOnlyGuard(s.withCortexWrite(s.handleConsolidate()))))
+
 	// Public routes — no auth, no body size limit (health/auth handshake).
 	mux.HandleFunc("GET /api/openapi.yaml", s.withPublicMiddleware(s.handleOpenAPISpec))
 	mux.HandleFunc("POST /api/hello", s.withPublicMiddleware(s.handleHello))

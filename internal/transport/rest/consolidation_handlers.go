@@ -31,9 +31,15 @@ type consolidationResponse struct {
 // handleConsolidate processes POST /v1/vaults/{vault}/consolidate
 func (s *Server) handleConsolidate() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		vault := r.PathValue("vault")
-		if vault == "" {
+		pathVault := r.PathValue("vault")
+		if pathVault == "" {
 			s.sendError(r, w, http.StatusBadRequest, ErrInvalidEngram, "vault name is required")
+			return
+		}
+
+		vault, resolveErr := resolveHandlerVault(r, pathVault)
+		if resolveErr != nil {
+			s.sendError(r, w, http.StatusBadRequest, ErrInvalidEngram, resolveErr.Error())
 			return
 		}
 
@@ -43,8 +49,14 @@ func (s *Server) handleConsolidate() http.HandlerFunc {
 			return
 		}
 
+		engine, ok := s.engine.(consolidation.EngineInterface)
+		if !ok {
+			s.sendError(r, w, http.StatusInternalServerError, ErrStorageError, "consolidation is not available")
+			return
+		}
+
 		// Create consolidation worker
-		worker := consolidation.NewWorker(s.engine.(consolidation.EngineInterface))
+		worker := consolidation.NewWorker(engine)
 		worker.DryRun = req.DryRun
 
 		// Run consolidation with timeout
