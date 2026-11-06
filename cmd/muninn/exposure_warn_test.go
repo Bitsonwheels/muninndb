@@ -24,24 +24,23 @@ func TestIsLoopbackHost(t *testing.T) {
 	}
 }
 
-func TestShouldWarnDefaultPasswordExposure(t *testing.T) {
+func TestAnyNonLoopbackAddr(t *testing.T) {
 	cases := []struct {
-		host         string
-		defaultInUse bool
-		want         bool
-		reason       string
+		name  string
+		addrs []string
+		want  bool
 	}{
-		{"127.0.0.1", true, false, "loopback + default password is fine (not reachable off-host)"},
-		{"0.0.0.0", true, true, "exposed + default password must warn"},
-		{"0.0.0.0", false, false, "exposed but password changed is fine"},
-		{"192.168.1.10", true, true, "LAN + default password must warn"},
-		{"localhost", true, false, "localhost is loopback"},
-		{"", true, true, "bind-all + default password must warn"},
+		{"all loopback", []string{"127.0.0.1:8475", "[::1]:8476"}, false},
+		{"bind all", []string{"0.0.0.0:8475"}, true},
+		{"lan address", []string{"192.168.1.10:8475"}, true},
+		{"empty host binds every interface", []string{":8475"}, true},
+		{"one exposed address among many", []string{"127.0.0.1:8475", "0.0.0.0:8750"}, true},
+		{"no address at all", nil, false},
+		{"unparsable address is ignored", []string{"not-an-address"}, false},
 	}
 	for _, c := range cases {
-		if got := shouldWarnDefaultPasswordExposure(c.host, c.defaultInUse); got != c.want {
-			t.Errorf("shouldWarnDefaultPasswordExposure(%q, %v) = %v, want %v — %s",
-				c.host, c.defaultInUse, got, c.want, c.reason)
+		if got := anyNonLoopbackAddr(c.addrs...); got != c.want {
+			t.Errorf("%s: anyNonLoopbackAddr(%v) = %v, want %v", c.name, c.addrs, got, c.want)
 		}
 	}
 }
