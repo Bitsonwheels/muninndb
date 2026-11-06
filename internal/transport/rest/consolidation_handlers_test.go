@@ -79,7 +79,6 @@ func TestHandleConsolidate_Success(t *testing.T) {
 	eng := newConsolidationTestEngine(t)
 	srv := NewServer("localhost:0", eng, nil, nil, nil, EmbedInfo{}, EnrichInfo{}, nil, "", nil)
 
-
 	handler := srv.handleConsolidate()
 
 	req := httptest.NewRequest("POST", "/v1/vaults/default/consolidate", strings.NewReader(`{}`))
