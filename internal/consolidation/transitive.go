@@ -44,7 +44,13 @@ func (w *Worker) runPhase5TransitiveInference(ctx context.Context, store *storag
 	const minWeight = 0.7
 	const confidenceDiscount = 0.8
 
-	allIDs, err := scanAllEngramIDs(ctx, store, wsPrefix)
+	// Collect the engram IDs page by page - the phase needs the whole graph
+	// in memory to walk the edges.
+	var allIDs []storage.ULID
+	err := scanVault(ctx, store, wsPrefix, func(eng *storage.Engram) error {
+		allIDs = append(allIDs, eng.ID)
+		return nil
+	})
 	if err != nil {
 		return err
 	}

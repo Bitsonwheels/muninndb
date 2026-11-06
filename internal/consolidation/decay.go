@@ -20,39 +20,20 @@ func (w *Worker) runPhase4DecayAcceleration(ctx context.Context, store *storage.
 	ageThreshold := 30 * 24 * time.Hour
 	now := time.Now()
 
-	allIDs, err := scanAllEngramIDs(ctx, store, wsPrefix)
-	if err != nil {
-		return err
-	}
-
-	if len(allIDs) == 0 {
-		return nil
-	}
-
-	// Fetch all engrams
-	allEngrams, err := store.GetEngrams(ctx, wsPrefix, allIDs)
-	if err != nil {
-		return err
-	}
-
 	var decayed int
-	for _, eng := range allEngrams {
-		if eng == nil {
-			continue
-		}
-
+	err := scanVault(ctx, store, wsPrefix, func(eng *storage.Engram) error {
 		// Check all three criteria
 		if eng.AccessCount >= maxAccessCount {
-			continue // has sufficient access
+			return nil // has sufficient access
 		}
 
 		age := now.Sub(eng.CreatedAt)
 		if age < ageThreshold {
-			continue // too new
+			return nil // too new
 		}
 
 		if eng.Relevance >= maxRelevance {
-			continue // too relevant already
+			return nil // too relevant already
 		}
 
 		// Apply decay
@@ -61,11 +42,15 @@ func (w *Worker) runPhase4DecayAcceleration(ctx context.Context, store *storage.
 		if !w.DryRun {
 			if err := store.UpdateRelevance(ctx, wsPrefix, eng.ID, newRelevance, eng.Stability); err != nil {
 				slog.Warn("consolidation phase 4: failed to decay engram", "id", eng.ID, "error", err)
-				continue
+				return nil
 			}
 		}
 
 		decayed++
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	report.DecayedEngrams = decayed

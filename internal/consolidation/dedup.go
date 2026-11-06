@@ -19,34 +19,16 @@ func (w *Worker) runPhase2Dedup(ctx context.Context, store *storage.PebbleStore,
 		similarityThreshold = w.DedupThreshold
 	}
 
-	// Scan all engrams in the vault
-	allIDs, err := scanAllEngramIDs(ctx, store, wsPrefix)
-	if err != nil {
-		return err
-	}
-
-	if len(allIDs) == 0 {
-		return nil
-	}
-
-	// Fetch full engrams (expensive but necessary to access embeddings)
-	allEngrams, err := store.GetEngrams(ctx, wsPrefix, allIDs)
-	if err != nil {
-		return err
-	}
-
-	// Build a list of engrams with embeddings only.
-	// ERF v2 stores embeddings in a separate 0x18 key, so GetEngrams()
-	// returns nil embeddings. Fall back to GetEmbedding() in that case.
+	// Build a list of engrams with embeddings only. The vault is scanned page
+	// by page (scanVault), so only one page is resident at a time, and the
+	// embeddings of a page are read in ONE batch instead of one point read
+	// per engram.
 	type engramWithEmbed struct {
 		engram    *storage.Engram
 		embedding []float32
 	}
 	withEmbed := make([]engramWithEmbed, 0)
-	for _, eng := range allEngrams {
-		if eng == nil {
-			continue
-		}
+	err := scanVaultWithEmbeddings(ctx, store, wsPrefix, func(eng *storage.Engram, embed []float32) error {
 		// #728: an already-archived (or soft-deleted) engram is dedup's OWN
 		// output — GetEngrams/scanAllEngramIDs do not filter by lifecycle
 		// state, so without this check a member this phase archived on an
@@ -66,17 +48,15 @@ func (w *Worker) runPhase2Dedup(ctx context.Context, store *storage.PebbleStore,
 		// reduce the set of engrams recall still serves, and an
 		// already-retired one is not a candidate for that job twice.
 		if eng.State == storage.StateArchived || eng.State == storage.StateSoftDeleted {
-			continue
-		}
-		embed := eng.Embedding
-		if len(embed) == 0 {
-			if loaded, err := store.GetEmbedding(ctx, wsPrefix, eng.ID); err == nil && len(loaded) > 0 {
-				embed = loaded
-			}
+			return nil
 		}
 		if len(embed) > 0 {
 			withEmbed = append(withEmbed, engramWithEmbed{engram: eng, embedding: embed})
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	// Guard against the normalization anchor flip (issue #311): archiving even a
@@ -307,35 +287,75 @@ func cosineSimilarity(a, b []float32) float32 {
 	return float32(dotProduct / (magA * magB))
 }
 
-// scanAllEngramIDs scans all engram IDs in a vault using pagination
-func scanAllEngramIDs(ctx context.Context, store *storage.PebbleStore, wsPrefix [8]byte) ([]storage.ULID, error) {
-	var allIDs []storage.ULID
-	var offset int
+// scanVault calls fn for every engram in the vault, one page at a time.
+//
+// The vault is walked with a paged scan, so only one page is resident at a
+// time instead of the whole vault.
+func scanVault(ctx context.Context, store *storage.PebbleStore, wsPrefix [8]byte, fn func(eng *storage.Engram) error) error {
+	return scanVaultPages(ctx, store, wsPrefix, false, func(eng *storage.Engram, _ []float32) error {
+		return fn(eng)
+	})
+}
+
+// scanVaultWithEmbeddings calls fn for every engram in the vault together with
+// its embedding (nil when the engram has none).
+//
+// ERF v2 stores the embeddings under a separate 0x18 key, so the engram
+// records come back without them. The embeddings of a page are read in ONE
+// batch (GetEmbeddings) instead of one point read per engram.
+func scanVaultWithEmbeddings(ctx context.Context, store *storage.PebbleStore, wsPrefix [8]byte, fn func(eng *storage.Engram, embed []float32) error) error {
+	return scanVaultPages(ctx, store, wsPrefix, true, fn)
+}
+
+func scanVaultPages(ctx context.Context, store *storage.PebbleStore, wsPrefix [8]byte, withEmbeddings bool, fn func(eng *storage.Engram, embed []float32) error) error {
 	const pageSize = 500
-
-	// Use EngramsByCreatedSince with epoch start time to get all engrams
-	for {
-		engrams, err := store.EngramsByCreatedSince(ctx, wsPrefix, time.Unix(0, 0), offset, pageSize)
+	for offset := 0; ; offset += pageSize {
+		// The metadata scan is cheap (it reads the slim 0x02 records) and
+		// only carries the ids.
+		meta, err := store.EngramsByCreatedSince(ctx, wsPrefix, time.Unix(0, 0), offset, pageSize)
 		if err != nil {
-			return nil, err
+			return err
+		}
+		if len(meta) == 0 {
+			return nil // no more engrams
 		}
 
-		if len(engrams) == 0 {
-			break // no more engrams
-		}
-
-		for _, eng := range engrams {
-			if eng != nil {
-				allIDs = append(allIDs, eng.ID)
+		ids := make([]storage.ULID, 0, len(meta))
+		for _, m := range meta {
+			if m != nil {
+				ids = append(ids, m.ID)
 			}
 		}
 
-		if len(engrams) < pageSize {
-			break // last page
+		// The full records of this page.
+		engrams, err := store.GetEngrams(ctx, wsPrefix, ids)
+		if err != nil {
+			return err
 		}
 
-		offset += pageSize
-	}
+		var embeddings [][]float32
+		if withEmbeddings {
+			embeddings, err = store.GetEmbeddings(ctx, wsPrefix, ids)
+			if err != nil {
+				return err
+			}
+		}
 
-	return allIDs, nil
+		// engrams and embeddings are positionally aligned with ids.
+		for i, eng := range engrams {
+			if eng == nil {
+				continue
+			}
+			var embed []float32
+			if withEmbeddings {
+				embed = eng.Embedding
+				if len(embed) == 0 && i < len(embeddings) {
+					embed = embeddings[i]
+				}
+			}
+			if err := fn(eng, embed); err != nil {
+				return err
+			}
+		}
+	}
 }

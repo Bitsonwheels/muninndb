@@ -18,36 +18,20 @@ func (w *Worker) runPhase3SchemaPromotion(ctx context.Context, store *storage.Pe
 	const minRelevance = 0.8
 	const boostFactor = 1.1
 
-	allIDs, err := scanAllEngramIDs(ctx, store, wsPrefix)
-	if err != nil {
-		return err
-	}
-
-	if len(allIDs) == 0 {
-		return nil
-	}
-
-	// Fetch all engrams to check their relevance and association count
-	allEngrams, err := store.GetEngrams(ctx, wsPrefix, allIDs)
-	if err != nil {
-		return err
-	}
-
 	var promoted int
-	for i, eng := range allEngrams {
-		if eng == nil || eng.Relevance < minRelevance {
-			continue
+	err := scanVault(ctx, store, wsPrefix, func(eng *storage.Engram) error {
+		if eng.Relevance < minRelevance {
+			return nil
 		}
 
 		// Count forward associations (out-degree)
-		assocs, err := store.GetAssociations(ctx, wsPrefix, []storage.ULID{allIDs[i]}, 1000)
+		assocs, err := store.GetAssociations(ctx, wsPrefix, []storage.ULID{eng.ID}, 1000)
 		if err != nil {
-			continue
+			return nil
 		}
 
-		outDegree := len(assocs[allIDs[i]])
-		if outDegree < minOutDegree {
-			continue
+		if len(assocs[eng.ID]) < minOutDegree {
+			return nil
 		}
 
 		// Promote: boost relevance
@@ -56,11 +40,15 @@ func (w *Worker) runPhase3SchemaPromotion(ctx context.Context, store *storage.Pe
 		if !w.DryRun {
 			if err := store.UpdateRelevance(ctx, wsPrefix, eng.ID, float32(newRelevance), eng.Stability); err != nil {
 				slog.Warn("consolidation phase 3: failed to promote engram", "id", eng.ID, "error", err)
-				continue
+				return nil
 			}
 		}
 
 		promoted++
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	report.PromotedNodes = promoted
