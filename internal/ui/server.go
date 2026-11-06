@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -36,6 +37,7 @@ type Server struct {
 	corsOrigins   []string
 	ln            net.Listener
 	auditLog      *audit.Logger
+	loginThrottle *loginThrottle
 }
 
 // SetAuditLogger wires an audit logger into the UI server.
@@ -106,6 +108,7 @@ func NewServer(webFS fs.FS, engine rest.EngineAPI, apiHandler http.Handler, auth
 		ring:          ring,
 		tlsConfig:     tlsConfig,
 		corsOrigins:   corsOrigins,
+		loginThrottle: newLoginThrottle(),
 	}
 
 	mux := http.NewServeMux()
@@ -304,6 +307,12 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "authentication not configured", http.StatusServiceUnavailable)
 		return
 	}
+	client := rest.ClientIP(r)
+	if blocked, retryAfter := s.loginThrottle.blocked(client); blocked {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+		http.Error(w, "too many failed login attempts", http.StatusTooManyRequests)
+		return
+	}
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -313,6 +322,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.authStore.ValidateAdmin(req.Username, req.Password); err != nil {
+		s.loginThrottle.recordFailure(client)
 		if s.auditLog != nil {
 			s.auditLog.Log(audit.AuditEvent{
 				Timestamp: time.Now().UTC(),
@@ -327,7 +337,8 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-	token, err := auth.NewSessionToken(req.Username, s.sessionSecret)
+	s.loginThrottle.recordSuccess(client)
+	token, err := s.authStore.NewSessionToken(req.Username, s.sessionSecret)
 	if err != nil {
 		http.Error(w, "session error", http.StatusInternalServerError)
 		return
