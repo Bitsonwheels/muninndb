@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -544,5 +545,37 @@ func TestRunOnce_CopiesAuxFiles(t *testing.T) {
 	st := sched.GetStatus()
 	if !st.LastRunOK {
 		t.Errorf("expected LastRunOK=true, got false: %s", st.LastError)
+	}
+}
+
+// TestRunOnce_CopyFailureMarksRunFailed verifies that a failed copy of the aux
+// files marks the run as failed instead of reporting success. A backup without
+// the WAL and the auth secret cannot restore the replication sequence and the
+// admin sessions, so it is not a backup an operator may rely on.
+func TestRunOnce_CopyFailureMarksRunFailed(t *testing.T) {
+	dataDir := t.TempDir()
+	backupDir := t.TempDir()
+
+	// A directory where the auth secret file is expected makes the copy fail.
+	if err := os.MkdirAll(filepath.Join(dataDir, "auth_secret"), 0700); err != nil {
+		t.Fatalf("mkdir auth_secret: %v", err)
+	}
+
+	stub := &stubCheckpointer{}
+	sched := New(Config{
+		Interval:  time.Hour,
+		BackupDir: backupDir,
+		Retain:    5,
+		DataDir:   dataDir,
+	}, stub)
+
+	sched.runOnce()
+
+	st := sched.GetStatus()
+	if st.LastRunOK {
+		t.Fatalf("expected LastRunOK=false after a failed copy, got true")
+	}
+	if !strings.Contains(st.LastError, "auth_secret") {
+		t.Errorf("expected the error to name auth_secret, got %q", st.LastError)
 	}
 }

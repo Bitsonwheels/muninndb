@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -128,11 +129,16 @@ func runBackup(args []string) {
 	slog.Info("backup verified: checkpoint is readable", "dir", checkpointDir)
 
 	// 2. Copy WAL (MOL) directory.
+	// A failed copy leaves the backup incomplete: without the WAL and the auth
+	// secret a restore from it would lose the replication sequence and every
+	// admin session.
+	var copyErrs []error
 	walSrc := filepath.Join(dataDir, "wal")
 	walDst := filepath.Join(outputDir, "wal")
 	if info, err := os.Stat(walSrc); err == nil && info.IsDir() {
 		if err := copyDir(walSrc, walDst); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to copy wal directory: %v\n", err)
+			copyErrs = append(copyErrs, fmt.Errorf("copy wal: %w", err))
 		} else {
 			slog.Info("wal directory copied", "src", walSrc, "dst", walDst)
 		}
@@ -144,6 +150,7 @@ func runBackup(args []string) {
 	if _, err := os.Stat(secretSrc); err == nil {
 		if err := copyFile(secretSrc, secretDst); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to copy auth_secret: %v\n", err)
+			copyErrs = append(copyErrs, fmt.Errorf("copy auth_secret: %w", err))
 		} else {
 			slog.Info("auth_secret copied")
 		}
@@ -151,6 +158,12 @@ func runBackup(args []string) {
 
 	elapsed := time.Since(start)
 	size := dirSizeBytes(outputDir)
+	if len(copyErrs) > 0 {
+		fmt.Fprintf(os.Stderr, "error: backup incomplete: %v\n", errors.Join(copyErrs...))
+		fmt.Printf("Backup incomplete: %s (%s, %s)\n", outputDir, formatBytes(size), elapsed.Round(time.Millisecond))
+		osExit(1)
+		return
+	}
 	fmt.Printf("Backup complete: %s (%s, %s)\n", outputDir, formatBytes(size), elapsed.Round(time.Millisecond))
 }
 

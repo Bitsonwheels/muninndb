@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -142,12 +143,18 @@ func (s *Scheduler) runOnce() {
 	}
 	slog.Info("backup: pebble checkpoint complete", "dir", checkpointDir)
 
+	// A failed copy leaves the backup incomplete: without the WAL and the auth
+	// secret a restore from it would lose the replication sequence and every
+	// admin session. The checkpoint itself is complete and stays on disk, but
+	// the run must not report success.
+	var copyErrs []error
 	if s.cfg.DataDir != "" {
 		walSrc := filepath.Join(s.cfg.DataDir, "wal")
 		walDst := filepath.Join(destDir, "wal")
 		if info, err := os.Stat(walSrc); err == nil && info.IsDir() {
 			if err := copyDir(walSrc, walDst); err != nil {
 				slog.Warn("backup: failed to copy wal directory", "err", err)
+				copyErrs = append(copyErrs, fmt.Errorf("copy wal: %w", err))
 			}
 		}
 
@@ -156,6 +163,7 @@ func (s *Scheduler) runOnce() {
 		if _, err := os.Stat(secretSrc); err == nil {
 			if err := copyFile(secretSrc, secretDst); err != nil {
 				slog.Warn("backup: failed to copy auth_secret", "err", err)
+				copyErrs = append(copyErrs, fmt.Errorf("copy auth_secret: %w", err))
 			}
 		}
 	}
@@ -165,17 +173,26 @@ func (s *Scheduler) runOnce() {
 
 	pruned := s.pruneOldBackups()
 
-	slog.Info("backup: complete",
-		"dest", destDir,
-		"size_bytes", size,
-		"elapsed", elapsed.Round(time.Millisecond),
-		"pruned", pruned,
-	)
+	var runErr error
+	if len(copyErrs) > 0 {
+		runErr = errors.Join(copyErrs...)
+		slog.Error("backup: scheduled backup incomplete", "err", runErr, "dest", destDir)
+	} else {
+		slog.Info("backup: complete",
+			"dest", destDir,
+			"size_bytes", size,
+			"elapsed", elapsed.Round(time.Millisecond),
+			"pruned", pruned,
+		)
+	}
 
 	s.mu.Lock()
 	s.lastRunAt = start
-	s.lastRunOK = true
+	s.lastRunOK = runErr == nil
 	s.lastError = ""
+	if runErr != nil {
+		s.lastError = runErr.Error()
+	}
 	s.lastSize = size
 	s.lastElapsed = elapsed.Round(time.Millisecond).String()
 	s.prunedCount = pruned
