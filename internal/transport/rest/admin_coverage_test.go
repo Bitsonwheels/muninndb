@@ -811,25 +811,6 @@ func TestEnvIntDefault(t *testing.T) {
 	}
 }
 
-func TestClientIP(t *testing.T) {
-	cases := []struct {
-		remoteAddr string
-		want       string
-	}{
-		{"192.168.1.1:1234", "192.168.1.1"},
-		{"[::1]:8080", "::1"},
-		{"127.0.0.1:0", "127.0.0.1"},
-		{"no-port", "no-port"},
-	}
-	for _, tc := range cases {
-		r := &http.Request{RemoteAddr: tc.remoteAddr}
-		got := ClientIP(r)
-		if got != tc.want {
-			t.Errorf("clientIP(%q) = %q, want %q", tc.remoteAddr, got, tc.want)
-		}
-	}
-}
-
 // --- Server health and ready ---
 
 func TestHealthEndpoint_Version(t *testing.T) {

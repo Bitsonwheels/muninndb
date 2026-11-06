@@ -17,6 +17,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/scrypster/muninndb/internal/audit"
 	"github.com/scrypster/muninndb/internal/auth"
+	"github.com/scrypster/muninndb/internal/httprate"
 	"github.com/scrypster/muninndb/internal/logging"
 	"github.com/scrypster/muninndb/internal/transport/rest"
 )
@@ -307,7 +308,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "authentication not configured", http.StatusServiceUnavailable)
 		return
 	}
-	client := rest.ClientIP(r)
+	client := httprate.ClientIP(r)
 	if blocked, retryAfter := s.loginThrottle.blocked(client); blocked {
 		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
 		http.Error(w, "too many failed login attempts", http.StatusTooManyRequests)

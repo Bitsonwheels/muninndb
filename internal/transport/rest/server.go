@@ -18,18 +18,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/oklog/ulid/v2"
 	"github.com/scrypster/muninndb/internal/audit"
 	"github.com/scrypster/muninndb/internal/auth"
 	"github.com/scrypster/muninndb/internal/config"
 	"github.com/scrypster/muninndb/internal/engine"
 	"github.com/scrypster/muninndb/internal/engine/trigger"
+	"github.com/scrypster/muninndb/internal/httprate"
 	"github.com/scrypster/muninndb/internal/metrics"
 	"github.com/scrypster/muninndb/internal/plugin"
 	"github.com/scrypster/muninndb/internal/replication"
 	mbp "github.com/scrypster/muninndb/internal/transport/mbp"
-	"golang.org/x/time/rate"
 )
 
 // isValidEngramID returns true if id is a syntactically valid ULID.
@@ -286,25 +285,9 @@ func NewServer(addr string, engine EngineAPI, authStore *auth.Store, sessionSecr
 	mux.HandleFunc("POST /api/admin/cluster/nodes/test", s.withAdminMiddleware(s.handleAdminClusterTestNode))
 	mux.HandleFunc("GET /api/admin/cluster/events", s.withAdminMiddleware(s.handleAdminClusterEvents))
 
-	// Build the global and per-IP rate limiters from env vars with fallback defaults.
-	const defaultGlobalRPS = 1000
-	const defaultPerIPRPS = 100
-	globalRPS := envIntDefault("MUNINN_RATE_LIMIT_GLOBAL_RPS", defaultGlobalRPS)
-	if globalRPS <= 0 {
-		slog.Warn("MUNINN_RATE_LIMIT_GLOBAL_RPS is <= 0, using default", "value", globalRPS, "default", defaultGlobalRPS)
-		globalRPS = defaultGlobalRPS
-	}
-	perIPRPS := envIntDefault("MUNINN_RATE_LIMIT_PER_IP_RPS", defaultPerIPRPS)
-	if perIPRPS <= 0 {
-		slog.Warn("MUNINN_RATE_LIMIT_PER_IP_RPS is <= 0, using default", "value", perIPRPS, "default", defaultPerIPRPS)
-		perIPRPS = defaultPerIPRPS
-	}
-	globalLimiter := rate.NewLimiter(rate.Limit(globalRPS), globalRPS*2)
-	ipCache, _ := lru.New[string, *rate.Limiter](50_000)
-
 	s.server = &http.Server{
 		Addr:           addr,
-		Handler:        newRateLimitMiddleware(globalLimiter, ipCache, perIPRPS)(s.corsMiddleware(mux)),
+		Handler:        httprate.FromEnv(rateLimitReject)(s.corsMiddleware(mux)),
 		ReadTimeout:    15 * time.Second,
 		WriteTimeout:   15 * time.Second,
 		IdleTimeout:    60 * time.Second,
@@ -1088,65 +1071,12 @@ func envIntDefault(key string, def int) int {
 	return v
 }
 
-// newRateLimitMiddleware returns an http.Handler middleware that enforces both a
-// global token-bucket limiter and a per-IP token-bucket limiter. Requests that
-// exceed either limit receive an immediate 429 JSON response and never enter the
-// downstream recovery/logging chain.
-//
-// The client IP is taken from the direct TCP connection (r.RemoteAddr) only;
-// proxy headers are not trusted.
-func newRateLimitMiddleware(global *rate.Limiter, ipCache *lru.Cache[string, *rate.Limiter], perIPRPS int) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Check global limiter first.
-			if !global.Allow() {
-				res := global.Reserve()
-				delay := res.Delay()
-				res.Cancel()
-				retryAfter := int(delay.Seconds()) + 1
-				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-				metrics.RateLimitRejections.WithLabelValues("global").Inc()
-				writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded", "rate limit exceeded")
-				return
-			}
-
-			// Resolve the client IP.
-			ip := ClientIP(r)
-
-			// Look up or create the per-IP limiter.
-			limiter, ok := ipCache.Get(ip)
-			if !ok {
-				limiter = rate.NewLimiter(rate.Limit(perIPRPS), perIPRPS*2)
-				ipCache.Add(ip, limiter)
-			}
-
-			if !limiter.Allow() {
-				res := limiter.Reserve()
-				delay := res.Delay()
-				res.Cancel()
-				retryAfter := int(delay.Seconds()) + 1
-				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-				metrics.RateLimitRejections.WithLabelValues("per_ip").Inc()
-				writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded", "rate limit exceeded")
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// ClientIP returns the direct TCP peer IP from r.RemoteAddr with the port
-// stripped. Proxy headers (X-Forwarded-For, X-Real-IP) are intentionally
-// ignored because they are attacker-controlled without a trusted proxy list.
-// Exported so the web UI can use the same client identity for its login
-// throttle.
-func ClientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+// rateLimitReject writes the REST 429 response for a request that exceeded the
+// global or per-IP rate limit (see internal/httprate).
+func rateLimitReject(w http.ResponseWriter, scope string, retryAfter int) {
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+	metrics.RateLimitRejections.WithLabelValues(scope).Inc()
+	writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded", "rate limit exceeded")
 }
 
 // clusterAuthWarnOnce ensures the misconfiguration warning is logged only once.

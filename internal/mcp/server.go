@@ -13,11 +13,14 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/scrypster/muninndb/internal/auth"
+	"github.com/scrypster/muninndb/internal/httprate"
+	"github.com/scrypster/muninndb/internal/metrics"
 )
 
 // MCPServer serves the MCP JSON-RPC 2.0 protocol on a single HTTP mux.
@@ -124,8 +127,31 @@ func New(addr string, eng EngineInterface, token string, keyAuth apiKeyValidator
 		}
 	})
 	mux.HandleFunc("/mcp/health", s.handleHealth)
-	s.srv = &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+
+	// Rate limit like the REST server (same env vars, same client identity)
+	// and set the timeouts the MCP server was missing. The long-lived SSE
+	// stream clears the write deadline itself (see handleSSE).
+	handler := httprate.FromEnv(rateLimitReject)(mux)
+	s.srv = &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 16, // 64 KB
+	}
 	return s
+}
+
+// rateLimitReject writes the JSON-RPC 429 response for a request that exceeded
+// the global or per-IP rate limit (see internal/httprate).
+func rateLimitReject(w http.ResponseWriter, scope string, retryAfter int) {
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+	metrics.RateLimitRejections.WithLabelValues(scope).Inc()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	w.Write([]byte(`{"jsonrpc":"2.0","error":{"code":-32000,"message":"rate limit exceeded"}}`))
 }
 
 // Serve starts listening. Blocks until the server is stopped.
@@ -441,6 +467,11 @@ func (s *MCPServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+
+	// Clear the server write deadline: SSE streams are long-lived, the
+	// server WriteTimeout would otherwise cut them after 30 seconds.
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
 
 	// Auth check
 	a := authFromRequest(r, s.token, s.authKeys, s.capKeys)
