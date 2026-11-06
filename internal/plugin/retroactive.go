@@ -71,6 +71,13 @@ type RetroactiveProcessor struct {
 	// inserted into HNSW. The engine uses it to re-evaluate push subscriptions
 	// with the now-available vector (#512). Only set on the embed processor.
 	onEmbed func(eng *Engram, vec []float32)
+
+	// leaderCheck, when set, gates the work: it must return true before the
+	// processor touches the store. The work costs money (one cloud call per
+	// engram) and writes to the store. In a cluster only the leader may write,
+	// so a follower would pay for the same backlog as the leader and have its
+	// result refused by the single-writer gate.
+	leaderCheck func() bool
 }
 
 type retroactiveVaultGuard struct {
@@ -85,6 +92,15 @@ type retroactiveVaultGuard struct {
 // computed and inserted into the index. Must be called before Start.
 func (rp *RetroactiveProcessor) SetOnEmbed(fn func(eng *Engram, vec []float32)) {
 	rp.onEmbed = fn
+}
+
+// SetLeaderCheck installs a gate that must return true before the processor
+// does any work. It exists for cluster mode: the work costs money (one cloud
+// call per engram) and writes to the store, and only the leader may write.
+// A follower that ran it would pay for the same backlog as the leader and
+// have every result refused. Must be called before Start.
+func (rp *RetroactiveProcessor) SetLeaderCheck(fn func() bool) {
+	rp.leaderCheck = fn
 }
 
 // NewRetroactiveProcessor creates a new processor for a plugin.
@@ -397,6 +413,12 @@ func (rp *RetroactiveProcessor) backoff(ctx context.Context, consecutiveErrors i
 // inference call per micro-batch, then scatters vectors back individually.
 // For EnrichPlugin: processes one engram at a time (LLM call per engram).
 func (rp *RetroactiveProcessor) processBatch(ctx context.Context) bool {
+	// The gate comes first: a node that may not write must not even count the
+	// backlog, let alone pay for it.
+	if rp.leaderCheck != nil && !rp.leaderCheck() {
+		return true
+	}
+
 	// Capture generations before opening the Pebble snapshot. A vault clear
 	// increments its generation before waiting for an in-flight call, so an old
 	// iterator can never gain admission after the clear boundary advances.

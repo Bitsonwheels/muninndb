@@ -1738,6 +1738,12 @@ func runServer() {
 		// Re-evaluate push subscriptions once each engram's embedding lands (#512),
 		// so vector-scored matches on freshly-written engrams are not missed.
 		retroProcessor.SetOnEmbed(eng.ReevaluatePushOnEmbed)
+		if coordinator != nil {
+			// Only the leader may write. A follower that ran the processor
+			// would pay for the same backlog (one cloud call per engram) and
+			// have every result refused by the single-writer gate.
+			retroProcessor.SetLeaderCheck(coordinator.IsLeader)
+		}
 		retroProcessor.Start(ctx)
 		slog.Info("retroactive embed processor started")
 	}
@@ -1747,6 +1753,9 @@ func runServer() {
 	var enrichProcessor *plugin.RetroactiveProcessor
 	if enrichPlugin != nil {
 		enrichProcessor = plugin.NewRetroactiveProcessor(pStore, enrichPlugin, plugin.DigestEnrich)
+		if coordinator != nil {
+			enrichProcessor.SetLeaderCheck(coordinator.IsLeader)
+		}
 		enrichProcessor.Start(ctx)
 		slog.Info("retroactive enrich processor started")
 	}
