@@ -9,7 +9,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+Security hardening and bug fixes from a full repository audit (20 findings, see
+`AUDIT.md`). The audit found no core-logic defects: the dangerous parts were
+deployment defaults, one middleware nesting mistake, and a few places where
+"best effort" quietly became "data missing".
+
+### Security
+
+- **docker-compose no longer publishes a wide-open server.** The host ports bind
+  to `127.0.0.1` and compose refuses to start without `MUNINN_ADMIN_PASSWORD`.
+  The server itself refuses to start when it is bound to a non-loopback address
+  while the admin still uses the default password, and creates the bootstrap
+  `default` vault private in that case. On a loopback bind the zero-config
+  quickstart is untouched. Escape hatch: `MUNINN_DEFAULT_VAULT_PUBLIC=1`.
+- **Authenticated REST routes accept 32 MB again, not 64 KB.** Two
+  `MaxBytesReader` wrappers were nested in the shared middleware chain, and Go
+  wraps rather than replaces, so every authenticated `/api` vault route was
+  effectively capped at the public route's 64 KB. Public routes keep 64 KB,
+  the import route keeps 512 MB.
+- **Changing the admin password now ends every open session.** The session
+  token carries a fingerprint of the admin's current password hash, so old
+  cookies stop validating; re-setting the same password is a no-op.
+- **Repeated failed admin logins are throttled** per client IP (10 failures
+  per 5 minutes → 429); a successful login resets the counter.
+- **The MCP HTTP server has timeouts and a rate limit** (shared limiter with
+  REST); before it had only a read-header timeout.
+- **`install.sh` refuses to install an unverifiable binary**: a missing
+  `checksums.txt` or a missing sha256 tool aborts instead of warning.
+- **Build assets are verified**: `model_int8.onnx`, `tokenizer.json` and the
+  ONNX runtime libraries are pinned by SHA-256 and checked after download.
+
+### Fixed
+
+- **A dropped full-text index job no longer makes a note invisible to search,
+  forever.** When the FTS queue is full, `Submit` waits one flush cycle and then
+  indexes the job in the calling goroutine instead of dropping it.
+- **Consolidation cannot dedup a small vault on any path.** The small-vault
+  guard (issue #311, the normalization anchor flip) moved into
+  `runPhase2Dedup`, so the scheduler path and the dream path both get it.
+- **Dedup scans the vault page by page** instead of loading it whole, and reads
+  the vectors in one batch per page instead of one point read per note.
+- **The retroactive embed/enrich backlog runs on the cluster leader only** —
+  followers paid the same cloud bill three times in a 3-node cluster.
+- **A backup with a failed WAL/auth_secret copy is reported as failed** instead
+  of logged as a warning and recorded successful.
+- **The audit webhook keeps events the collector did not accept** and retries
+  them; the pending list is capped (10,000, oldest dropped first).
+
+### Changed
+
+- `POST /v1/vaults/{vault}/consolidate` is registered (the 5-phase
+  consolidation worker) with vault auth, a read-only guard and a checked vault
+  match; the handler's type assertion no longer panics on a non-conforming
+  engine.
+- The admin cookie's `Secure` flag follows the request (`r.TLS` or
+  `X-Forwarded-Proto: https`) instead of the server's TLS config.
+- The UI fails closed: `/logs`, `/events` and `/api/auth/check` return 401 when
+  no auth store is configured instead of serving them unprotected.
+- The rate limiter keys on `X-Real-IP` / `X-Forwarded-For` when present, so a
+  team behind one proxy no longer shares a single bucket.
+- The backup file helpers exist once (`CopyFile`/`CopyDir`/`DirSize` in
+  `internal/backup`), and the dead decay worker (`internal/cognitive/decay.go`),
+  `HNSWNode.maxLayer` and `DecaySchedule.PopDue` are deleted.
+- README gets a "Remote Access" section (SSH tunnel recipe + systemd user unit).
 
 ---
 
