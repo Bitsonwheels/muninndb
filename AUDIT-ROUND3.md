@@ -123,19 +123,27 @@ Round-1-Fixes verdrahtet korrekt.
 - index: Locks um DF-RMW, kein cross-vault IDF-Contamination, BFS-Bounds,
   kein 4-Byte-Präfix-Keying.
 
+## F — sdk + web
+
+- **F1 | high (×6 SDKs)** [checked für Go: sdk/go/muninn/client.go:585-614; session für python/node/kotlin/swift/php] — Retry-Logik replayt non-idempotente Writes: alle Clients wenden exponentiellen Backoff bei 5xx/Connection-Errors auf JEDES Verb an, inkl. `POST /api/engrams`, `/batch`, `/api/activate`, `/api/link`, DELETE-Forget. Keine Idempotency-Keys in Write-Pfaden; REST-Server dedupliziert nicht nach Client-Key. Szenario: Write kommt an, Response geht verloren → Retry erzeugt Duplikat-Engram. [uncertain: Server-Dedupe via Content-Hash nicht geprüft] Fix: Retry auf GET/HEAD beschränken oder `Idempotency-Key`-Header (serverseitig honoriert).
+- **F2 | low | sdk/go/muninn/client.go:618** [checked] — `defer resp.Body.Close()` in der Retry-Schleife → alte Bodies bleiben bis zum Funktionsende offen (minor FD-Leak). Fix: explizit vor `continue` schließen.
+- **F3 | low | sdk/go/muninn/client.go:661** [session] — `backoff()` nutzt `time.Sleep`, ignoriert ctx-Cancellation.
+- **web/ sauber:** kein XSS-Sink (nur Alpine `x-text`), Token nicht in localStorage, `credentials: 'same-origin'`, keine Hardcoded-Secrets, kein `InsecureSkipVerify`, Bearer nie in URLs (go:595 [checked]).
+- Coverage: SDK go (4 Dateien), python 8, node 5, kotlin 4, swift 4, php 5; web/static/js hand-written (app.js 3117) + index.html voll. Skipped: Tests, vendor, e2e, package-lock.
+
 ## Gaps (Bewertung: schlecht genug?)
 
 - mbp/cluster_frames.go (235 LOC) ungelesen — Cluster-Frame-Pfad offen.
 - cmd/muninn-Rest war Sampling: init.go (1347), setup_ai.go (912), repl_client (530),
   status (510), exec (233), envfile (364), api_key (356), remember (331), doctor (300),
   mcp_stdio (220), repl (406), help (427) nicht voll gelesen.
-- sdk/web: nicht auditiert.
+- internal/index Tests, hnsw (Round 2 abgedeckt), grpc/ (Round 1 teils, Rest offen).
 
 ## Prioritäten (Fix-Reihenfolge)
 
 1. **C1+C2+C3** (mbp unauth OOM-Kette) — kleinster diff mit größtem Effekt.
-2. **B1** (fail-closed exposure detection) — Ein-Zeilen-Fix.
-3. **C4** (silent response drop) — observability zuerst.
-4. **B2** (whitespace admin password) — Ein-Zeilen-Fix.
-5. **E1** (closer leak), **E4** (Stop-Idempotenz), **E2** (prefixSuccessor).
-6. **M1, D3, D2, D4, D5, E3, E5, E6** — nach Relevanz.
+2. **F1** (SDK-Retry-Duplikate; serverseitige Idempotenz-Entscheidung nötig).
+3. **B1** (fail-closed exposure detection) — Ein-Zeilen-Fix.
+4. **C4** (silent response drop) — observability zuerst.
+5. **B2** (whitespace admin password), **E1** (closer leak), **E4** (Stop-Idempotenz).
+6. **E2** (prefixSuccessor), **F2/F3** (SDK-Hygiene), **M1, D3, D2, D4, D5, E3, E5, E6** — nach Relevanz.
