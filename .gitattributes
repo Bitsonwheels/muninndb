@@ -34,3 +34,17 @@
 *.html  diff text
 *.toml  diff text
 *.md    diff text
+
+# Vendored third-party files keep their upstream line endings. They were committed as
+# CRLF blobs; with `text` set, the clean filter maps working-tree CRLF→LF, which never
+# matches the stored blob — so the file reports as modified forever and `git checkout`
+# cannot clear it (the bytes are already identical). `-text` disables normalization for
+# them; `diff` stays forced so the NUL-byte safety of #827 still applies to vendored code.
+web/static/vendor/** diff -text
+
+# Vendored third-party files keep their upstream line endings: their blobs were
+# committed with CRLF, and `text` normalization makes git report a permanent
+# phantom modification on them (clean filter strips CRLF, blob keeps it) that
+# `git checkout` cannot clear — the worktree bytes are identical to HEAD.
+# `diff` stays forced so NUL-byte review safety (#827) still applies to them.
+web/static/vendor/** diff -text
