@@ -26,6 +26,15 @@ func TestSubmitReturnsFalseWhenStopped(t *testing.T) {
 	}
 }
 
+// TestStopIsIdempotent: Stop used to close stopCh and done unguarded, so a
+// second call panicked. The shutdown path and any later teardown that reaches
+// Stop again are now safe.
+func TestStopIsIdempotent(t *testing.T) {
+	w := newWorkerWithIndex(&countingIndex{})
+	w.Stop()
+	w.Stop() // must not panic
+}
+
 // TestIndexInlineDoesNotPanicOnClosedStore proves that indexInline (used when
 // the queue is full) recovers the panic a closed Pebble database raises
 // instead of crashing the calling writer goroutine.

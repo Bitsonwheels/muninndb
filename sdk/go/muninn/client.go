@@ -608,7 +608,7 @@ func (c *Client) request(ctx context.Context, method, path string, body []byte, 
 		if err != nil {
 			lastErr = err
 			if attempt < c.maxRetries && c.isRetryable(err) {
-				c.backoff(attempt)
+				c.backoff(ctx, attempt)
 				continue
 			}
 			return fmt.Errorf("request failed: %w", err)
@@ -620,7 +620,8 @@ func (c *Client) request(ctx context.Context, method, path string, body []byte, 
 		if resp.StatusCode >= 500 && attempt < c.maxRetries {
 			// Retry on 5xx errors
 			lastErr = fmt.Errorf("server error %d", resp.StatusCode)
-			c.backoff(attempt)
+			resp.Body.Close()
+			c.backoff(ctx, attempt)
 			continue
 		}
 
@@ -654,14 +655,19 @@ func (c *Client) isRetryable(err error) bool {
 		strings.Contains(err.Error(), "temporary failure")
 }
 
-// backoff waits with exponential backoff + jitter.
-func (c *Client) backoff(attempt int) {
+// backoff waits with exponential backoff + jitter, or until ctx is done.
+func (c *Client) backoff(ctx context.Context, attempt int) {
 	if attempt > 10 {
 		attempt = 10 // Cap exponent to avoid huge waits
 	}
 	delay := time.Duration(math.Pow(2, float64(attempt))) * c.retryBackoff
 	jitter := time.Duration(rand.Intn(100)) * time.Millisecond
-	time.Sleep(delay + jitter)
+	timer := time.NewTimer(delay + jitter)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
 }
 
 // addHeaders adds default headers to the request.

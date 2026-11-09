@@ -2,6 +2,7 @@ package mbp
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
 	"testing"
 )
@@ -110,6 +111,30 @@ func TestFramePayloadSizeLimit(t *testing.T) {
 	err := WriteFrame(buf, frame)
 	if err != ErrPayloadTooLarge {
 		t.Errorf("expected ErrPayloadTooLarge, got %v", err)
+	}
+}
+
+// TestReadFrameLimited_PreAuthCap: the HELLO frame is read before any
+// credential exists, so an announced payload above PreAuthMaxPayloadSize must
+// be refused before the payload buffer is allocated.
+func TestReadFrameLimited_PreAuthCap(t *testing.T) {
+	h := make([]byte, FramePrefixSize)
+	h[0] = 0x01
+	h[1] = TypeHello
+	binary.BigEndian.PutUint32(h[4:8], PreAuthMaxPayloadSize+1)
+
+	if _, err := readFrameLimited(bytes.NewReader(h), PreAuthMaxPayloadSize); err != ErrPayloadTooLarge {
+		t.Errorf("expected ErrPayloadTooLarge, got %v", err)
+	}
+
+	// A frame exactly at the cap must still pass the length check: the
+	// payload read then fails on EOF, which proves the buffer was allocated.
+	h2 := make([]byte, FramePrefixSize)
+	h2[0] = 0x01
+	h2[1] = TypeHello
+	binary.BigEndian.PutUint32(h2[4:8], PreAuthMaxPayloadSize)
+	if _, err := readFrameLimited(bytes.NewReader(h2), PreAuthMaxPayloadSize); err == nil {
+		t.Error("expected an EOF error reading the missing payload, got nil")
 	}
 }
 

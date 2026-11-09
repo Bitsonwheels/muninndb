@@ -61,6 +61,7 @@ type Worker struct {
 	pending        atomic.Int64
 	wg             sync.WaitGroup
 	done           chan struct{}
+	stopOnce       sync.Once
 	clearingVaults sync.Map // [8]byte → struct{}{}
 }
 
@@ -197,11 +198,14 @@ func (w *Worker) indexInline(job IndexJob) {
 }
 
 // Stop drains the queue and shuts down all worker goroutines. Blocks until complete.
+// Idempotent: closing stopCh or done twice would panic.
 func (w *Worker) Stop() {
 	w.stopped.Store(true)
-	close(w.stopCh)
-	w.wg.Wait()
-	close(w.done)
+	w.stopOnce.Do(func() {
+		close(w.stopCh)
+		w.wg.Wait()
+		close(w.done)
+	})
 }
 
 // Flush blocks until every job accepted by Submit before this call has been

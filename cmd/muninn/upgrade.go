@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -64,6 +65,14 @@ func latestReleaseDefault() (releaseInfo, error) {
 	}
 	return release, nil
 }
+
+// validReleaseTag reports whether a release tag is safe to interpolate into
+// URLs and into the Windows `cmd /c start` invocation. parseSemver only
+// validates the leading X.Y.Z — whatever follows "-" or "+" passes through
+// untouched — so the whole tag gets one strict character check here.
+var validReleaseTagRe = regexp.MustCompile(`^v?[0-9][0-9A-Za-z.+-]*$`)
+
+func validReleaseTag(tag string) bool { return validReleaseTagRe.MatchString(tag) }
 
 // parseSemver parses "vX.Y.Z" or "X.Y.Z" into (major, minor, patch) ints.
 // Handles pre-release and build metadata (e.g., "v1.2.3-alpha" or "v1.2.3+build").
@@ -271,6 +280,13 @@ func runUpgrade(args []string) {
 		fmt.Println()
 		fmt.Println("  Dev build — version checks are disabled.")
 		fmt.Println()
+		return
+	}
+	if !validReleaseTag(latest) {
+		fmt.Println(" failed")
+		fmt.Println()
+		fmt.Fprintf(os.Stderr, "  Unexpected release tag %q — refusing to build a download URL from it.\n", latest)
+		fmt.Fprintln(os.Stderr, "")
 		return
 	}
 

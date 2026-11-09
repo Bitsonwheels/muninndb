@@ -153,8 +153,10 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Read the HELLO frame first
-	helloFrame, err := ReadFrame(conn)
+	// Read the HELLO frame first. No credential exists yet, so the announced
+	// payload length is capped: an unauthenticated client must not be able to
+	// make us allocate a 16 MB buffer from a length field it controls.
+	helloFrame, err := readFrameLimited(conn, PreAuthMaxPayloadSize)
 	if err != nil {
 		s.writeErrorFrame(conn, 0, ErrAuthFailed, "failed to read HELLO")
 		return
@@ -582,7 +584,11 @@ func (s *Server) queueFrame(writeCh chan *Frame, frameType uint8, corrID uint64,
 	select {
 	case writeCh <- frame:
 	default:
-		// Channel full, drop frame (should not happen with buffered channel)
+		// Channel full, drop frame (should not happen with buffered channel).
+		// Loud on purpose: a dropped response is a lost reply from the
+		// client's point of view, so it must be visible in the log.
+		slog.Warn("mbp: write channel full, dropping response frame",
+			"type", frameType, "corrID", corrID, "payloadLen", len(data))
 	}
 }
 

@@ -103,6 +103,9 @@ func (g *Graph) GetAssociations(ctx context.Context, ws [8]byte, id [16]byte, ma
 
 // WriteAssociation writes forward and reverse association keys.
 func (g *Graph) WriteAssociation(ws [8]byte, src [16]byte, assoc *storage.Association) error {
+	if assoc == nil {
+		return fmt.Errorf("adjacency: nil association")
+	}
 	dst := [16]byte(assoc.TargetID)
 
 	// Prevent self-edges

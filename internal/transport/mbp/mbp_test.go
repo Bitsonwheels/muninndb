@@ -330,6 +330,69 @@ func TestCompressPayload_AboveThreshold(t *testing.T) {
 	}
 }
 
+// TestDecompressPayload_RejectsBomb pins the decoder bound: far more zeros
+// than the advertised payload limit (HelloResponse Limits.MaxPayloadMB = 64,
+// internal/engine/engine.go:1330-1335) compress to almost nothing, and
+// decoding them must fail inside the decoder (WithDecoderMaxMemory(64<<20))
+// instead of materialising gigabytes.
+func TestDecompressPayload_RejectsBomb(t *testing.T) {
+	bomb, compressed, err := CompressPayload(bytes.Repeat([]byte{0}, 70*1024*1024))
+	if err != nil {
+		t.Fatalf("CompressPayload: %v", err)
+	}
+	if !compressed {
+		t.Fatal("expected zeros to compress")
+	}
+
+	if _, err := DecompressPayload(bomb); err == nil {
+		t.Fatal("decompression bomb accepted — decoder is not bounded")
+	}
+}
+
+// TestDecompressPayload_AdvertisedLimitStillWorks is the other side of the
+// same contract: a payload within the advertised 64 MB limit, sent as one
+// compressed frame that expands past the 16 MB wire limit, must decode. The
+// decoder bound may not sit below the advertised limit.
+func TestDecompressPayload_AdvertisedLimitStillWorks(t *testing.T) {
+	payload := bytes.Repeat([]byte("payload"), 7*1024*1024) // 49 MB, under 64
+	compressed, ok, err := CompressPayload(payload)
+	if err != nil {
+		t.Fatalf("CompressPayload: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected compression")
+	}
+
+	got, err := DecompressPayload(compressed)
+	if err != nil {
+		t.Fatalf("DecompressPayload rejected a payload within the advertised 64 MB limit: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatal("decoded payload does not round-trip")
+	}
+}
+
+// TestDecompressPayload_RoundTrip proves the bounded decoder still decodes
+// legitimate payloads that fit a frame.
+func TestDecompressPayload_RoundTrip(t *testing.T) {
+	data := bytes.Repeat([]byte("payload"), 100_000)
+	compressed, ok, err := CompressPayload(data)
+	if err != nil {
+		t.Fatalf("CompressPayload: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected compression")
+	}
+
+	out, err := DecompressPayload(compressed)
+	if err != nil {
+		t.Fatalf("DecompressPayload: %v", err)
+	}
+	if !bytes.Equal(out, data) {
+		t.Fatal("round-trip mismatch")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // frame.go – edge cases beyond existing frame_test.go
 // ---------------------------------------------------------------------------

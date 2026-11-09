@@ -20,6 +20,11 @@ type Frame struct {
 const (
 	FramePrefixSize = 16               // version(1) + type(1) + flags(2) + payloadLen(4) + correlationID(8)
 	MaxPayloadSize  = 16 * 1024 * 1024 // 16 MB
+
+	// PreAuthMaxPayloadSize caps the payload of a frame read before the
+	// session is authenticated. HELLO carries a few short strings, so a
+	// larger announced payload has no legitimate use at that point.
+	PreAuthMaxPayloadSize = 64 * 1024
 )
 
 // Flag constants (bits in the Flags uint16)
@@ -110,6 +115,13 @@ var (
 // ReadFrame reads exactly one frame from the reader.
 // Returns io.EOF if the connection is closed cleanly.
 func ReadFrame(r io.Reader) (*Frame, error) {
+	return readFrameLimited(r, MaxPayloadSize)
+}
+
+// readFrameLimited is ReadFrame with a caller-supplied payload cap. It is used
+// on the unauthenticated path, where the length field cannot be trusted yet:
+// the cap is checked before the payload buffer is allocated.
+func readFrameLimited(r io.Reader, maxPayload uint32) (*Frame, error) {
 	frame := &Frame{}
 
 	// Read 16-byte prefix
@@ -131,8 +143,8 @@ func ReadFrame(r io.Reader) (*Frame, error) {
 		return nil, ErrVersionMismatch
 	}
 
-	// Validate payload size
-	if frame.PayloadLength > MaxPayloadSize {
+	// Validate payload size against the cap before allocating anything
+	if frame.PayloadLength > maxPayload {
 		return nil, ErrPayloadTooLarge
 	}
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 )
 
 // DefaultAdminPassword is the password the root account gets on first run when
@@ -36,6 +37,9 @@ func Bootstrap(store *Store, secretPath string, exposed bool) (secret []byte, er
 	}
 
 	envPassword := os.Getenv("MUNINN_ADMIN_PASSWORD")
+	// Whitespace-only counts as unset: MUNINN_ADMIN_PASSWORD=" " would
+	// otherwise slip past the default-password guard below on an exposed bind.
+	envPasswordSet := strings.TrimSpace(envPassword) != ""
 
 	// The bootstrap vault is public only while the server stays on the local
 	// machine. MUNINN_DEFAULT_VAULT_PUBLIC=1 opts back in for deployments where
@@ -50,7 +54,7 @@ func Bootstrap(store *Store, secretPath string, exposed bool) (secret []byte, er
 	// Create root admin if none exists
 	if !store.AdminExists() {
 		adminPassword := envPassword
-		if adminPassword == "" {
+		if !envPasswordSet {
 			adminPassword = DefaultAdminPassword
 		}
 		if exposed && adminPassword == DefaultAdminPassword {
@@ -65,7 +69,7 @@ func Bootstrap(store *Store, secretPath string, exposed bool) (secret []byte, er
 		fmt.Println("│            MuninnDB — First Run Setup             │")
 		fmt.Println("│                                                    │")
 		fmt.Println("│  Admin username : root                             │")
-		if envPassword != "" {
+		if envPasswordSet {
 			fmt.Println("│  Admin password : (set via MUNINN_ADMIN_PASSWORD)  │")
 		} else {
 			fmt.Println("│  Admin password : password                         │")
@@ -76,7 +80,7 @@ func Bootstrap(store *Store, secretPath string, exposed bool) (secret []byte, er
 		} else {
 			fmt.Println("│  Default vault  : private (API key required)       │")
 		}
-		if envPassword == "" {
+		if !envPasswordSet {
 			fmt.Println("│                                                    │")
 			fmt.Println("│  Change your password and review vault settings    │")
 			fmt.Println("│  in the admin UI before exposing to a network.     │")

@@ -817,10 +817,13 @@ func (idx *Index) getIDF(ws [8]byte, term string, N float64) float64 {
 
 	key := keys.TermStatsKey(ws, term)
 	val, closer, err := idx.db.Get(key)
-	if err != nil || len(val) < 8 {
+	if err != nil {
 		return 0
 	}
 	defer closer.Close()
+	if len(val) < 8 {
+		return 0
+	}
 
 	df := float64(binary.BigEndian.Uint32(val[0:4]))
 	idf = math.Log((N-df+0.5)/(df+0.5) + 1)

@@ -929,7 +929,9 @@ func anyNonLoopbackAddr(addrs ...string) bool {
 	for _, addr := range addrs {
 		host, _, err := net.SplitHostPort(addr)
 		if err != nil {
-			continue
+			// Unparseable: assume exposed. A malformed address also fails
+			// net.Listen moments later, so no working deployment reaches this.
+			return true
 		}
 		if !isLoopbackHost(host) {
 			return true

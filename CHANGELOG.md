@@ -38,6 +38,64 @@ deployment defaults, one middleware nesting mistake, and a few places where
   `checksums.txt` or a missing sha256 tool aborts instead of warning.
 - **Build assets are verified**: `model_int8.onnx`, `tokenizer.json` and the
   ONNX runtime libraries are pinned by SHA-256 and checked after download.
+- **A compressed MBP frame can no longer blow up the server.** The zstd decoder
+  is created with `WithDecoderMaxMemory(64<<20)` (`internal/transport/mbp/compress.go:37-43`),
+  so decoding fails inside the decoder when the output passes that bound instead
+  of materialising gigabytes first and checking afterwards. 64 MiB is exactly the
+  payload limit the server advertises to clients (`Limits.MaxPayloadMB`,
+  `internal/engine/engine.go:1330-1335`), so the enforced bound and the advertised
+  contract are the same number.
+- **The MBP handshake reads at most 64 KiB before any credential exists.** The
+  HELLO frame now goes through `readFrameLimited(conn, PreAuthMaxPayloadSize)`
+  (`internal/transport/mbp/frame.go:19-27`), so an unauthenticated connection
+  cannot make the server allocate a 16 MB buffer by announcing it in a length
+  field. Every other frame keeps the full `MaxPayloadSize`.
+- **A whitespace-only `MUNINN_ADMIN_PASSWORD` no longer bypasses the default
+  password guard.** `" "` is trimmed the same way `""` always was
+  (`internal/auth/bootstrap.go:39-59`), so an exposed bind with a whitespace
+  password fails fast instead of starting with the default admin account.
+
+### Fixed
+
+- **A dropped response frame is logged, not silent.** When the MBP write channel
+  is full the drop now emits a warning with frame type, correlation ID and
+  payload length (`internal/transport/mbp/server.go:584-591`); before, the
+  client's reply vanished with no trace anywhere.
+- **`getIDF` no longer leaks the Pebble value closer** on the short-value path
+  (`internal/index/fts/fts.go:819-826`): the length check moved below the
+  `defer closer.Close()`, so a corrupt short `TermStats` value releases the
+  reader like every other exit.
+- **Stopping the FTS worker twice no longer panics.** `Stop` closes the stop and
+  done channels inside a `sync.Once` (`internal/index/fts/worker.go:63-64,200-209`),
+  so an admin restart racing the shutdown path is safe.
+- **`WriteAssociation` rejects a nil association** before dereferencing it
+  (`internal/index/adjacency/adjacency.go:106-108`) instead of panicking deeper
+  in the write.
+- **The Go SDK's retry closes the previous response body** before retrying
+  (`sdk/go/muninn/client.go:618-625`); `defer` inside the loop kept every
+  discarded body open until the request returned.
+- **The Go SDK's backoff honours the request context** (`sdk/go/muninn/client.go:658-665`):
+  a cancelled request stops waiting instead of sleeping out the full backoff.
+- **An unparseable listen address counts as exposed.** `anyNonLoopbackAddr`
+  returns true on a `SplitHostPort` error instead of skipping the address
+  (`cmd/muninn/server.go:928-939`); a malformed address also fails `net.Listen`,
+  so no working deployment changes behaviour.
+- **The upgrade command validates the release tag** before it goes into the
+  printed URL and the `cmd /c start` browser command on Windows
+  (`cmd/muninn/upgrade.go`).
+
+### Changed
+
+- The MBP decoder bound was tightened during review from the 16 MB wire-frame
+  limit to exactly the advertised 64 MiB: a legitimate frame may decode larger
+  than its wire form, so bounding it at the wire size had narrowed the advertised
+  contract. Two tests pin the bound from both sides —
+  `TestDecompressPayload_RejectsBomb` (70 MiB of zeros must fail inside the
+  decoder) and `TestDecompressPayload_AdvertisedLimitStillWorks` (49 MB must
+  round-trip).
+- The dead `.goreleaser.yml` is deleted. It had no reference anywhere in
+  `.github/`, `scripts/` or the `Makefile`; `release.yml` builds and publishes
+  the releases that `install.sh` downloads.
 
 ### Fixed
 
