@@ -2,6 +2,8 @@
 
 **Memory that strengthens with use, fades when unused, and pushes to you when it matters** — accessible over MCP, REST, gRPC, or SDK.
 
+> **Fork note:** this repository is `Bitsonwheels/muninndb`, a fork of the upstream `scrypster/muninndb`. The module path still names the upstream project, but the code here carries the local audit-fix campaign (bounded MBP decompression, pre-auth frame cap, auth bootstrap, FTS/SDK fixes), and releases are built from this fork by its own `release.yml` on a tag push.
+
 *Provisional patent filed Feb 26, 2026 on the core cognitive primitives (engine-native Ebbinghaus decay, Hebbian learning, Bayesian confidence, semantic triggers). This helps protect the project so we can keep it open and innovative for everyone.*
 
 [![CI](https://github.com/scrypster/muninndb/actions/workflows/ci.yml/badge.svg)](https://github.com/scrypster/muninndb/actions/workflows/ci.yml)

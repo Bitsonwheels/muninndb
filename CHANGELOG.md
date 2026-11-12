@@ -96,6 +96,13 @@ deployment defaults, one middleware nesting mistake, and a few places where
 - The dead `.goreleaser.yml` is deleted. It had no reference anywhere in
   `.github/`, `scripts/` or the `Makefile`; `release.yml` builds and publishes
   the releases that `install.sh` downloads.
+- The `DecompressPayload` doc comment no longer names the stale bound
+  (`MaxPayloadSize`); it names the real one (64 MiB) and its source, so a
+  maintainer reading the security bound is not 4x off.
+- The README states at the top that this repository is the
+  `Bitsonwheels/muninndb` fork of `scrypster/muninndb`, what the fork carries
+  (this audit-fix campaign), and that releases are built from the fork's own
+  `release.yml` on a tag push.
 
 ### Fixed
 
