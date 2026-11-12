@@ -91,8 +91,10 @@ func CompressPayload(data []byte) ([]byte, bool, error) {
 }
 
 // DecompressPayload decompresses zstd-compressed data. The decoder is created
-// with WithDecoderMaxMemory(MaxPayloadSize), so a decompression bomb fails
-// while decoding instead of after the full buffer has been allocated.
+// with WithDecoderMaxMemory(64<<20) — the advertised HelloResponse
+// Limits.MaxPayloadMB (internal/engine/engine.go:1330-1335) — so a
+// decompression bomb fails while decoding instead of after the full buffer has
+// been allocated.
 func DecompressPayload(data []byte) ([]byte, error) {
 	if err := initPools(); err != nil {
 		return nil, fmt.Errorf("zstd unavailable: %w", err)
